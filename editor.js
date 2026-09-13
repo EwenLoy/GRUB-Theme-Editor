@@ -51,7 +51,6 @@ function resizeStage() {
   canvas.height = Math.round(STAGE_H * zoom);
   scale = zoom;
   document.getElementById('zoom-val').textContent = Math.round(zoom * 100) + '%';
-  document.getElementById('canvas-hint').textContent = `${STAGE_W}×${STAGE_H} · ПКМ — добавить элемент`;
 }
 
 /* ---------- слои: базовая модель + фабрика ---------- */
@@ -487,18 +486,11 @@ function drawEditor() {
     const tw = (theme.terminalWidth / 100) * canvas.width;
     const th = (theme.terminalHeight / 100) * canvas.height;
     const drew = theme.terminalBoxImg && drawNinePatch(ctx, theme.terminalBoxImg, tx, ty, tw, th, theme.terminalBorder * scale, scale);
-    if (!drew && !theme.terminalBoxPattern) {
-      // Тёмный fallback рисуем ТОЛЬКО если пользователь сам включил terminal-box,
-      // но не выбрал картинки. Если тема ссылается на паттерн terminal_box_*.png,
-      // а файлов нет (как в импортированном проекте) — реальный GRUB тоже рисует
-      // ничего: png-loader падает на отсутствующем файле, и никакого затемнения
-      // поверх фона нет. Раньше редактор красил весь холст rgba(0,0,0,0.7),
-      // из-за чего фон выглядел темнее, чем в настоящем GRUB.
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(tx, ty, tw, th);
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.strokeRect(tx, ty, tw, th);
-    }
+    // Тёмный fallback УДАЛЁН: реальный GRUB никогда не затемняет фон из-за
+    // terminal-box. Если файлы паттерна не найдены — png-loader просто не
+    // рисует бокс (как с terminal_box_*.png, которых нет в проекте).
+    // Раньше редактор красил весь холст rgba(0,0,0,0.7), из-за чего фон
+    // выглядел темнее, чем в настоящем GRUB.
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = `${11 * scale}px sans-serif`;
     ctx.fillText('terminal-box', tx + 6 * scale, ty + 14 * scale);
