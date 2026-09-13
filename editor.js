@@ -2264,6 +2264,13 @@ async function buildExportBlobs() {
   Object.keys(projectFiles).forEach(k => {
     if (/\.pf2$/i.test(k)) blobs[k] = projectFiles[k];
   });
+  // ROUND-TRIP: все остальные файлы из импортированного архива (иконки классов без записей,
+  // info_grub.png и пр.) тоже кладём в экспорт как есть — тема должна выезжать обратно
+  // в том же составе, а не терять файлы, которые редактор «не понял».
+  Object.keys(projectFiles).forEach(k => {
+    if (/^theme\.txt$/i.test(k)) return; // theme.txt генерируем заново
+    if (!blobs[k]) blobs[k] = projectFiles[k];
+  });
   for (const f of projectFonts) {
     if (f.url && !blobs[f.file]) blobs[f.file] = f.url;
   }
@@ -2312,6 +2319,16 @@ async function buildExportBlobs() {
   const sanitizeWarnings = [];
   let finalThemeTxt = themeTxt;
   {
+    // Паттерны, пришедшие ИЗ ИМПОРТИРОВАННОЙ темы как есть. Если файлы под них и в
+    // исходной теме не существовали (частый случай: terminal-box: "terminal_box_*.png"
+    // без самих файлов — GRUB такое терпит и просто не рисует terminal-box), то
+    // вырезать эту строку и пугать пользователя НЕЛЬЗЯ — иначе честный
+    // "импорт -> экспорт без изменений" давал ложное предупреждение.
+    const importedPatterns = new Set();
+    if (theme.terminalBoxPattern) importedPatterns.add(String(theme.terminalBoxPattern).toLowerCase());
+    layers.forEach(l => ['menuBorderPattern','menuNormalPattern','menuSelectedPattern','scrollbarFramePattern','scrollbarThumbPattern','barStylePattern','highlightStylePattern','imgPattern'].forEach(pk => {
+      if (l[pk]) importedPatterns.add(String(l[pk]).toLowerCase());
+    }));
     // ключи-свойства theme.txt, которые ссылаются на путь к файлу(ам)
     const fileRefProps = [
       'desktop-image', 'terminal-box',
@@ -2327,6 +2344,7 @@ async function buildExportBlobs() {
         // если это 9-slice (содержит *), файл может называться иначе для каждого куска —
         // проверяем, есть ли ХОТЯ БЫ ОДИН файл в архиве, чей путь ИЛИ ИМЯ ФАЙЛА (без папок,
         // как GRUB видит пути относительно папки темы) совпадает с этим паттерном
+        if (importedPatterns.has(pattern.toLowerCase())) { keptLines.push(line); continue; }
         const isWildcard = pattern.includes('*');
         const wildcardRe = isWildcard
           ? new RegExp(pattern.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i')
@@ -2526,7 +2544,7 @@ function resolveSlicedPattern(pattern, fileMap) {
   let any = false;
   NINE_SUFFIXES.forEach(suf => {
     const fname = `${prefix}${suf}${ext}`;
-    const url = fileMap[fname.toLowerCase()];
+    const url = fileMapGet(fileMap, fname);
     if (url) { slices[suf] = url; any = true; }
   });
   if (any) return slices;
@@ -2534,7 +2552,7 @@ function resolveSlicedPattern(pattern, fileMap) {
   // НЕ подхватывает одиночный name.png, поэтому возвращаем как single image (строку),
   // а экспорт запишет путь БЕЗ wildcard — тогда GRUB масштабирует центр.
   for (const cand of [`${prefix}.png`, `${prefix}${ext}`]) {
-    const url = fileMap[cand.toLowerCase()];
+    const url = fileMapGet(fileMap, cand);
     if (url) return url;
   }
   return null;
@@ -2554,7 +2572,7 @@ function importThemeFolder(fileList) {
   files.forEach(f => {
     let rel = f.webkitRelativePath || f.name;
     if (root && rel.startsWith(root + '/')) rel = rel.slice(root.length + 1);
-    fileMap[rel.toLowerCase()] = URL.createObjectURL(f);
+    fileMap[rel] = URL.createObjectURL(f);
   });
 
   const themeReader = new FileReader();
@@ -2572,8 +2590,7 @@ function importThemeFolder(fileList) {
 function lookupFile(fileMap, relPath) {
   if (!relPath) return null;
   // theme.txt пути обычно относительные, без ведущего ./
-  const clean = relPath.replace(/^\.\//, '').toLowerCase();
-  return fileMap[clean] || null;
+  return fileMapGet(fileMap, relPath.replace(/^\.\//, ''));
 }
 
 /* ============================================================
@@ -2615,7 +2632,9 @@ function parseTar(buf) {
   return files;
 }
 
-// --- строит fileMap (rel.toLowerCase() -> blobURL) из массива {name, data} с общим корнем ---
+// --- строит fileMap (rel -> blobURL, ОРИГИНАЛЬНЫЙ регистр имён сохраняется!) из массива {name, data} с общим корнем ---
+// Регистр важен: GRUB ищет иконки/шрифты по точному имени файла (icons/SystemRescueCD.png),
+// а раньше ключи приводились к lowercase и экспорт молча менял SystemRescueCD.png -> systemrescuecd.png.
 function buildFileMapFromEntries(entries) {
   // находим theme.txt, чтобы определить корневую папку темы внутри архива
   const themeEntry = entries.find(e => /(^|\/)theme\.txt$/i.test(e.name));
@@ -2629,9 +2648,18 @@ function buildFileMapFromEntries(entries) {
     else if (root && rel === root) return;
     if (!rel) return;
     const blob = new Blob([e.data]);
-    fileMap[rel.toLowerCase()] = URL.createObjectURL(blob);
+    fileMap[rel] = URL.createObjectURL(blob);
   });
   return { fileMap, themeText: new TextDecoder('utf-8').decode(themeEntry.data) };
+}
+
+// регистронезависимое чтение из fileMap (пути в theme.txt могут отличаться регистром от имён файлов)
+function fileMapGet(fileMap, key) {
+  if (!fileMap || !key) return null;
+  if (fileMap[key]) return fileMap[key];
+  const lower = key.toLowerCase();
+  const hit = Object.keys(fileMap).find(k => k.toLowerCase() === lower);
+  return hit ? fileMap[hit] : null;
 }
 
 function importThemeFromZip(arrayBuffer) {
@@ -2713,7 +2741,7 @@ function autoCreateOsEntriesFromIcons(fileMap) {
     const fileName = rel.split('/').pop();
     const base = fileName.replace(/\.[^.]+$/, '');
     const url = fileMap[rel];
-    osEntries.push({ id: osIdCounter++, name: base, osClass: base.toLowerCase(), normalImg: url, selectedImg: url, normalName: fileName, selectedName: fileName });
+    osEntries.push({ id: osIdCounter++, name: base, osClass: base, normalImg: url, selectedImg: url, normalName: fileName, selectedName: fileName });
     cacheImage(url);
   });
 }
