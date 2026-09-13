@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>GRUB Theme Editor by ewenloy</title>
+<link rel="stylesheet" href="editor.css">
+
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <div class="title">GRUB Theme Editor <span>by ewenloy</span></div>
+
+    <div class="menu-item" id="menu-file">
+      <button class="menu-btn" id="menu-file-btn">Файл ▾</button>
+      <div class="menu-dropdown" id="menu-file-dropdown"></div>
+    </div>
+    <div class="menu-item" id="menu-view">
+      <button class="menu-btn" id="menu-view-btn">Вид ▾</button>
+      <div class="menu-dropdown" id="menu-view-dropdown"></div>
+    </div>
+    <button id="btn-canvas-props">Параметры холста…</button>
+
+    <div class="divider"></div>
+
+    <div id="top-toolbar">
+      <span class="tb-label">ВСТАВКА</span>
+      <button id="tb-add-menu">+ Меню</button>
+      <button id="tb-add-progress">+ Прогресс-бар</button>
+      <button id="tb-add-circular">+ Круг. прогресс</button>
+      <button id="tb-add-label">+ Текст</button>
+      <button id="tb-add-box">+ Прямоугольник</button>
+      <button id="tb-add-image">+ Картинка</button>
+      <input type="file" id="tb-image-file" accept="image/*" style="display:none;">
+    </div>
+
+    <div class="spacer"></div>
+
+    <button id="btn-preview" title="Превью GRUB (как в Construct ▶)" style="background:var(--accent-dim);border-color:var(--accent);">▶ Превью</button>
+    <button id="btn-export-zip">Экспорт ZIP</button>
+    <button class="primary" id="btn-export">Экспорт theme.txt</button>
+  </div>
+
+  <div id="main-row">
+
+    <div id="inspector-wrap" class="panel-col" style="width:320px;">
+      <div id="inspector" class="panel-col" style="flex:1;min-height:0;">
+        <div class="panel-header"><span>Свойства</span><span class="close-x" data-panel="inspector-wrap">✕</span></div>
+        <div id="inspector-body" style="overflow-y:auto;flex:1;"></div>
+      </div>
+      <div id="os-config" class="panel-col" style="flex:1;min-height:0;border-top:1px solid var(--border);">
+        <div class="panel-header"><span>Конфигурация проекта (иконки ОС)</span><span class="close-x" data-panel="os-config">✕</span></div>
+        <div id="os-config-body" style="overflow-y:auto;flex:1;padding:8px;"></div>
+      </div>
+    </div>
+
+    <div class="splitter-v" data-resize="inspector-wrap"></div>
+
+    <div id="canvas-wrap" class="panel-col" style="flex:1;">
+      <div id="stage-shell">
+        <canvas id="stage" width="960" height="540"></canvas>
+        <div class="canvas-hint" id="canvas-hint">1920×1080 · ПКМ — добавить элемент</div>
+      </div>
+      <div class="zoom-hud">
+        <button id="zoom-out">−</button>
+        <span class="zoom-val" id="zoom-val">50%</span>
+        <button id="zoom-in">+</button>
+        <button id="zoom-fit">Fit</button>
+      </div>
+    </div>
+
+    <div class="splitter-v" data-resize="right-wrap"></div>
+
+    <div id="right-wrap" class="panel-col" style="width:280px;">
+      <div id="project-tree-wrap" class="panel-col" style="flex:1;min-height:80px;">
+        <div class="panel-header"><span>Проект</span><span class="close-x" data-panel="project-tree-wrap">✕</span></div>
+        <div style="padding:6px 8px;display:flex;gap:6px;">
+          <input id="project-tree-search" placeholder="Поиск…" style="flex:1;background:var(--bg-2);border:1px solid var(--border-light);color:var(--text-0);padding:5px 8px;border-radius:4px;font-size:11px;">
+        </div>
+        <div id="project-tree" style="overflow:auto;flex:1;padding:4px 6px;font-size:11.5px;line-height:1.5;"></div>
+      </div>
+      <div class="splitter-h" data-resize="project-tree-wrap"></div>
+      <div id="layers" class="panel-col" style="height:45%;min-height:80px;">
+        <div class="panel-header"><span>Слои</span><span class="close-x" data-panel="layers">✕</span></div>
+        <div id="layer-list" style="overflow:auto;flex:1;"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- контекстное меню правого клика по холсту -->
+<div id="ctx-menu">
+  <div id="ctx-layer-actions" style="display:none;">
+    <div class="menu-hint" id="ctx-layer-name"></div>
+    <div class="menu-row" data-ctx="front">На передний план</div>
+    <div class="menu-row" data-ctx="forward">На уровень выше ↑</div>
+    <div class="menu-row" data-ctx="backward">На уровень ниже ↓</div>
+    <div class="menu-row" data-ctx="back">На задний план</div>
+    <div class="menu-sep"></div>
+    <div class="menu-row" data-ctx="duplicate">Дублировать</div>
+    <div class="menu-row" data-ctx="delete" style="color:var(--danger);">Удалить</div>
+    <div class="menu-sep"></div>
+  </div>
+  <div id="ctx-add-actions">
+    <div class="menu-row" data-add="label">+ Текст</div>
+    <div class="menu-row" data-add="menu">+ Меню загрузки</div>
+    <div class="menu-row" data-add="box">+ Прямоугольник</div>
+    <div class="menu-row" data-add="progress">+ Прогресс-бар</div>
+    <div class="menu-row" data-add="circular">+ Круговой прогресс</div>
+    <div class="menu-row" data-add="image">+ Картинка</div>
+  </div>
+  <div class="menu-sep" id="ctx-sep-canvas"></div>
+  <div class="menu-row" id="ctx-canvas-props">Параметры холста…</div>
+</div>
+
+<!-- модалка экспорта theme.txt -->
+<div id="modal-bg">
+  <div id="modal">
+    <div class="m-head"><h3>theme.txt</h3><span class="close-x" id="modal-close">✕</span></div>
+    <div class="m-body"><pre id="export-text"></pre></div>
+    <div class="m-foot">
+      <button id="btn-copy">Копировать</button>
+      <button class="primary" id="btn-download">Скачать theme.txt</button>
+    </div>
+  </div>
+</div>
+
+<!-- модалка Canvas Properties -->
+<div id="cp-modal-bg">
+  <div id="cp-modal">
+    <div class="m-head"><h3>Параметры холста</h3><span class="close-x" id="cp-close">✕</span></div>
+    <div class="m-body">
+
+      <div class="cp-section-title">Холст</div>
+      <div class="cp-grid">
+        <label class="cp-label" for="cp-preset">Пресет GRUB</label>
+        <select id="cp-preset"></select>
+
+        <label class="cp-label" for="cp-width">Ширина (px)</label>
+        <input type="number" id="cp-width" placeholder="1920">
+
+        <label class="cp-label" for="cp-height">Высота (px)</label>
+        <input type="number" id="cp-height" placeholder="1080">
+      </div>
+
+      <div class="cp-section-title">Фон</div>
+      <div class="cp-grid">
+        <label class="cp-label" for="cp-bgcolor">Цвет фона</label>
+        <input type="color" id="cp-bgcolor">
+
+        <label class="cp-label">Фоновое изображение</label>
+        <div class="cp-btn-row">
+          <button id="cp-bg-browse">Обзор…</button>
+          <button id="cp-bg-remove" class="ghost">Убрать</button>
+        </div>
+        <input type="file" id="cp-bg-file" accept="image/*" hidden>
+
+        <label class="cp-label" for="cp-bg-scale">Масштабирование</label>
+        <select id="cp-bg-scale">
+          <option value="stretch">stretch</option>
+          <option value="crop">crop</option>
+          <option value="padding">padding</option>
+          <option value="fitwidth">fitwidth</option>
+          <option value="fitheight">fitheight</option>
+        </select>
+
+        <label class="cp-label">Выравнивание</label>
+        <div class="cp-split">
+          <select id="cp-bg-halign"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select>
+          <select id="cp-bg-valign"><option value="top">top</option><option value="center">center</option><option value="bottom">bottom</option></select>
+        </div>
+      </div>
+
+      <div class="cp-section-title with-toggle">
+        <span>Заголовок (title-text)</span>
+        <label class="cp-switch"><input type="checkbox" id="cp-title-on"><span></span></label>
+      </div>
+      <div class="cp-grid">
+        <label class="cp-label" for="cp-title-text">Текст заголовка</label>
+        <input type="text" id="cp-title-text" placeholder="Название темы">
+
+        <label class="cp-label" for="cp-title-color">Цвет заголовка</label>
+        <input type="color" id="cp-title-color" value="#ffffff">
+      </div>
+
+      <div class="cp-section-title with-toggle">
+        <span>Terminal-box</span>
+        <label class="cp-switch"><input type="checkbox" id="cp-term-on"><span></span></label>
+      </div>
+      <div class="cp-grid">
+        <label class="cp-label">Картинка рамки (9-patch)</label>
+        <div class="cp-btn-row">
+          <button id="cp-term-browse">Обзор…</button>
+          <button id="cp-term-remove" class="ghost">Убрать</button>
+        </div>
+        <input type="file" id="cp-term-file" accept="image/*" hidden>
+
+        <label class="cp-label" for="cp-term-border">Толщина рамки (px)</label>
+        <input type="number" id="cp-term-border" placeholder="12">
+      </div>
+
+      <div class="cp-term-grid">
+        <div class="cp-mini-field"><label for="cp-term-left">Left %</label><input type="number" id="cp-term-left"></div>
+        <div class="cp-mini-field"><label for="cp-term-top">Top %</label><input type="number" id="cp-term-top"></div>
+        <div class="cp-mini-field"><label for="cp-term-width">Width %</label><input type="number" id="cp-term-width"></div>
+        <div class="cp-mini-field"><label for="cp-term-height">Height %</label><input type="number" id="cp-term-height"></div>
+      </div>
+
+      <div class="cp-section-title">Экспорт</div>
+      <div class="cp-grid">
+        <label class="cp-label" for="cp-coord-mode">Формат координат</label>
+        <select id="cp-coord-mode">
+          <option value="percent">проценты (25%)</option>
+          <option value="px">пиксели (480)</option>
+        </select>
+      </div>
+
+    </div>
+    <div class="m-foot">
+      <button id="cp-cancel">Отмена</button>
+      <button class="primary" id="cp-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="preview-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);display:none;align-items:center;justify-content:center;z-index:200;flex-direction:column;gap:12px;padding:20px;">
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;">
+    <span style="font-size:12.5px;color:var(--text-0);font-weight:600;">Превью GRUB</span>
+    <span id="preview-info" style="font-size:11px;color:var(--text-2);font-family:var(--mono);"></span>
+    <label style="font-size:11px;color:var(--text-2);display:flex;gap:4px;align-items:center;">timeout <input id="preview-timeout" type="number" min="3" max="60" value="10" style="width:52px;background:var(--bg-2);border:1px solid var(--border-light);color:var(--text-0);padding:3px 6px;border-radius:4px;"></label>
+    <button id="preview-close" style="margin-left:12px;">Закрыть</button>
+  </div>
+  <div style="background:#000;border:1px solid #333;border-radius:4px;overflow:hidden;max-width:92vw;max-height:82vh;display:flex;align-items:center;justify-content:center;">
+    <canvas id="preview-canvas"></canvas>
+  </div>
+  <div style="font-size:11px;color:var(--text-2);max-width:720px;text-align:center;">Рендер приближён к GRUB (моноширинный шрифт, целые %, без скруглений). Для точного — тест в QEMU. Esc — закрыть.</div>
+</div>
+<script src="fflate.js"></script>
+<script src="editor.js"></script>
+<script>
+document.getElementById('btn-preview').addEventListener('click', ()=>{ if(typeof openPreview==='function') openPreview(); });
+document.getElementById('preview-close').addEventListener('click', ()=>{ if(typeof closePreview==='function') closePreview(); else document.getElementById('preview-bg').style.display='none'; });
+document.getElementById('preview-bg').addEventListener('click', (e)=>{ if(e.target.id==='preview-bg'){ if(typeof closePreview==='function') closePreview(); else e.currentTarget.style.display='none'; } });
+window.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ if(typeof closePreview==='function') closePreview(); else document.getElementById('preview-bg').style.display='none'; } });
+</script>
+</body>
+</html>
