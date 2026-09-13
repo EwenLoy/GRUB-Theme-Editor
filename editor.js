@@ -2530,10 +2530,15 @@ async function buildExportBlobs() {
 }
 
 async function exportZip() {
-  const { files, sanitizeWarnings, missingFonts } = await buildExportBlobs();
+  const { files, sanitizeWarnings, missingFonts, failedPaths } = await buildExportBlobs();
+  if (failedPaths && failedPaths.length) console.error('Экспорт: файлы не попали в ZIP:', failedPaths);
   const allWarnings = [
     ...(sanitizeWarnings || []),
-    ...(missingFonts || [])
+    ...(missingFonts || []),
+    // не прячем молча: если какие-то файлы не удалось положить в ZIP — показываем явно
+    ...(failedPaths && failedPaths.length
+      ? [`Не удалось положить в ZIP: ${failedPaths.join(', ')}`]
+      : [])
   ];
   if (allWarnings.length) {
     alert(
