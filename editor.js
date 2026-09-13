@@ -71,7 +71,7 @@ function makeLayer(type, overrides = {}) {
     barColor: '#3d5f4d',
     barBg: '#2a2a2a',
     showBarText: false,
-    barText: '%d сек. до автозагрузки',
+    barText: '%d sec. until auto boot',
     circleColor: '#3d8a6e',
     circleBg: '#2a2a2a',
     circleText: '10s',
@@ -4034,7 +4034,7 @@ window.closePreview = closePreview;
 /* ---------- стартовая сцена ---------- */
 resizeStage();
 addLayer('label');
-getLayer(selectedId).text = 'Выберите систему';
+getLayer(selectedId).text = 'Select an operating system';
 getLayer(selectedId).x = 160; getLayer(selectedId).y = 180;
 addLayer('menu');
 addLayer('progress');
