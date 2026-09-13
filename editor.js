@@ -720,9 +720,19 @@ function drawLayerShape(c, l, sc) {
       // highlight_overlay: заливка рисуется поверх, с наложением скруглений рамки
       drawNinePatch(c, l.barStyleImg, x, y, w, h, (l.barStyleBorder || 8) * sc, sc);
     }
-    if (!frameDrawn) {
-      c.strokeStyle = 'rgba(255,255,255,0.15)';
-      c.strokeRect(x, y, w, h);
+    if (!frameDrawn && !l.highlightStyleImg) {
+      // GRUB (gui_progress_bar.c, draw_filled_rect_bar): в ПЛОСКОМ режиме (нет ни
+      // bar_style, ни highlight_style) рисуется рамка 1px цветом border_color
+      // (по умолчанию чёрный), а заливка идёт с отступом 1px. В pixmap-режиме
+      // (как в этой теме — highlight_style задан) рамки НЕ рисуется вовсе:
+      // bar_box пустой и ничего не блитит. Прежняя декоративная белая обводка
+      // rgba(255,255,255,0.15) в GRUB отсутствовала — убрана.
+      const bc = (l.hasBorderColor && l.barBorderColor) ? l.barBorderColor : '#000000';
+      c.fillStyle = bc;
+      c.fillRect(x, y, w, 1);
+      c.fillRect(x, y + h - 1, w, 1);
+      c.fillRect(x, y, 1, h);
+      c.fillRect(x + w - 1, y, 1, h);
     }
     if (l.showBarText) {
       c.fillStyle = l.barTextColor || '#ffffff';
