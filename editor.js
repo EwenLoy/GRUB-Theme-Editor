@@ -1144,6 +1144,36 @@ canvas.addEventListener('contextmenu', (e) => {
 window.addEventListener('click', (e) => {
   if (!e.target.closest('#ctx-menu')) document.getElementById('ctx-menu').classList.remove('show');
 });
+// ПКМ по пустому пространству ВОКРУГ макета (workspace, панели-обёртки и т.п.)
+// тоже открывает меню вставки — вместо нативного меню браузера. Точка вставки
+// клампится в границы холста, чтобы новый слой появился внутри макета.
+// Правый клик по элементам UI (инпуты, другие меню, тулбар, список слоёв)
+// оставляет браузерное поведение.
+document.addEventListener('contextmenu', (e) => {
+  if (e.defaultPrevented) return; // свой обработчик (canvas/список слоёв) уже сработал
+  const t = e.target;
+  if (!t || !t.closest) return;
+  if (t.closest('#ctx-menu, #ctx-add-actions, .menu-dropdown, #top-toolbar, #layer-list, #inspector-wrap, #project-panel, #panel-right, input, textarea, select, button, [contenteditable]')) return;
+  e.preventDefault();
+  ctxMenuLayerId = null;
+  try {
+    const sp = toStageCoords(e);
+    ctxMenuStagePos = {
+      x: Math.max(0, Math.min(STAGE_W, sp.x)),
+      y: Math.max(0, Math.min(STAGE_H, sp.y)),
+    };
+  } catch (err) {
+    ctxMenuStagePos = { x: STAGE_W / 2, y: STAGE_H / 2 };
+  }
+  const menu = document.getElementById('ctx-menu');
+  document.getElementById('ctx-layer-actions').style.display = 'none';
+  document.getElementById('ctx-add-actions').style.display = 'block';
+  document.getElementById('ctx-sep-canvas').style.display = 'block';
+  document.getElementById('ctx-canvas-props').style.display = 'block';
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 230) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 320) + 'px';
+  menu.classList.add('show');
+});
 document.querySelectorAll('#ctx-menu [data-add]').forEach(item => {
   item.addEventListener('click', () => {
     if(item.classList.contains('disabled')) return;
