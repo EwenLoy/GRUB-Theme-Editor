@@ -826,14 +826,31 @@ function drawLayerShape(c, l, sc) {
 /* Встроенная библиотека иконок (папка default-icons/ рядом с editor.js).
    Иконка подставляется ос-записи автоматически по --class:
    default-icons/<class>.png — как GRUB ищет <class>.png в папке иконок. */
-const DEFAULT_ICON_CLASSES = ['4MLinux','AlpineLinux','android','anonymous','antergos','arch','archcraft','archlinux','arcolinux','artix','brunch-settings','brunch','cachyos','cancel','chakra','debian','deepin','devuan','driver','edit','efi','elementary','endeavouros','fedora','find.efi','find.none','freebsd','gentoo','gnu-linux','gpart','haiku','help','hotpe','kali','kaos','kbd','kernel','korora','kubuntu','lang','lfs','lightpe','linux','linuxmint','lubuntu','macosx','mageia','Manjaro.i686','manjaro','Manjaro.x86_64','manjarolinux','memtest','mx-linux','neon','nixos','opensuse','openwrt','parrot','pop-os','pop','recovery','regolith','restart','shutdown','siduction','solus','steamos','submenu','SystemRescueCD','type','tz','ubuntu','ubuntuDDE','unknown','unset','void','vtoyvhd','vtoywim','windows','windows11','xubuntu','zorin'];
+const DEFAULT_ICON_CLASSES = ['4MLinux','AlpineLinux','android','anonymous','antergos','arch','archcraft','archlinux','arcolinux','artix','brunch-settings','brunch','cachyos','cancel','chakra','debian','deepin','devuan','driver','edit','efi','elementary','endeavouros','fedora','find.efi','find.none','freebsd','gentoo','gnu-linux','gpart','haiku','help','hotpe','kali','kaos','kbd','kernel','korora','kubuntu','lang','lfs','lightpe','linux','linuxmint','lubuntu','macosx','macos','osx','mageia','Manjaro.i686','manjaro','Manjaro.x86_64','manjarolinux','memtest','memtest86','memtest86+','mx-linux','neon','nixos','opensuse','openwrt','parrot','pop-os','pop','recovery','regolith','restart','shutdown','siduction','solus','steamos','submenu','SystemRescueCD','type','tz','ubuntu','ubuntuDDE','unknown','unset','void','vtoyvhd','vtoywim','windows','windows11','xubuntu','zorin'];
+
+// алиасы имён классов -> каноническое имя файла/библиотеки (варианты, которые
+// генерирует grub.cfg/os-prober): GRUB ищет icons/<класс>.png по ТОЧНОМУ имени,
+// поэтому без файла-алиаса пункт молча рисуется без иконки.
+const ICON_CLASS_ALIASES = {
+  macos: 'macosx',
+  osx: 'macosx',
+  mac: 'macosx',
+  'memtest86': 'memtest',
+  'memtest86+': 'memtest',
+};
 
 function defaultIconClassFor(e) {
   const norm = s => String(s || '').trim().toLowerCase().replace(/\.png$/, '');
   const cands = [e.osClass, e.name];
   for (const cand of cands) {
     if (!cand) continue;
-    const hit = DEFAULT_ICON_CLASSES.find(c => norm(c) === norm(cand));
+    const n = norm(cand);
+    // алиасы классов: реальный grub.cfg использует варианты имён (macos, osx),
+    // а файл/библиотека — каноническое имя (macosx). GRUB ищет точное имя файла,
+    // поэтому маппим вариант на канонический класс библиотеки.
+    const alias = ICON_CLASS_ALIASES[n];
+    if (alias) return alias;
+    const hit = DEFAULT_ICON_CLASSES.find(c => norm(c) === n);
     if (hit) return hit;
   }
   return null;
@@ -2512,6 +2529,13 @@ async function buildExportBlobs() {
   for (const dcls of DEFAULT_ICON_CLASSES) {
     const durl = await loadDefaultIconDataUrl(dcls);
     if (durl && !blobs[`icons/${dcls}.png`]) blobs[`icons/${dcls}.png`] = durl;
+  }
+  // файлы-алиасы классов: GRUB ищет icons/<класс>.png по точному имени из
+  // --class, поэтому для вариантов (macos/osx → macosx, memtest86* → memtest)
+  // кладём копию иконки под всеми альтернативными именами.
+  for (const [alias, canon] of Object.entries(ICON_CLASS_ALIASES)) {
+    const akey = `icons/${alias}.png`, ckey = `icons/${canon}.png`;
+    if (!blobs[akey] && blobs[ckey]) blobs[akey] = blobs[ckey];
   }
   // шрифты .pf2: то, что пришло с импортом (projectFiles) + загруженное пользователем (projectFonts,
   // включая шрифты, автоматически зарегистрированные при импорте архива под их реальными путями)
