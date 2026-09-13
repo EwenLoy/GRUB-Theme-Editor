@@ -839,6 +839,28 @@ function defaultIconClassFor(e) {
   return null;
 }
 
+/* Дефолтные иконки в экспорт: относительный путь default-icons/... нельзя отдать
+   напрямую в сборщик ZIP (fetch() на file:// запрещён), поэтому конвертируем PNG
+   в dataURL через canvas — data: URL fetch() берёт без проблем. */
+const _defaultIconDataUrlCache = {};
+function loadDefaultIconDataUrl(cls) {
+  if (cls in _defaultIconDataUrlCache) return Promise.resolve(_defaultIconDataUrlCache[cls]);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+        cv.getContext('2d').drawImage(img, 0, 0);
+        _defaultIconDataUrlCache[cls] = cv.toDataURL('image/png');
+      } catch (err) { _defaultIconDataUrlCache[cls] = null; }
+      resolve(_defaultIconDataUrlCache[cls]);
+    };
+    img.onerror = () => { _defaultIconDataUrlCache[cls] = null; resolve(null); };
+    img.src = `default-icons/${cls}.png`;
+  });
+}
+
 function defaultOsEntries() {
   return [
     { id: 1, name: 'Ubuntu, Linux 6.8', osClass: 'ubuntu', normalImg: null, selectedImg: null },
@@ -1952,7 +1974,7 @@ function buildThemeTxt() {
     osEntries.forEach((e, i) => {
       const cls = e.osClass || ('os' + (i + 1));
       lines.push(`# ${i + 1}. "${e.name}"  →  menuentry ... --class ${cls} { ... }`);
-      lines.push(`#    icon: ${e.normalImg ? 'icons/' + cls + '.png' : '(не задано)'}`);
+      lines.push(`#    icon: ${(e.normalImg || defaultIconClassFor(e)) ? 'icons/' + cls + '.png' : '(не задано)'}`);
     });
     lines.push('');
   }
@@ -2328,11 +2350,19 @@ async function buildExportBlobs() {
     else blobs['terminal_box.png'] = theme.terminalBoxImg;
   }
   // иконки ос: GRUB подбирает иконку по классу menuentry --class <cls>,
-  // поэтому имя файла ДОЛЖНО совпадать с классом: icons/<class>.png
-  osEntries.forEach((e, i) => {
+  // поэтому имя файла ДОЛЖНО совпадать с классом: icons/<class>.png.
+  // Если у записи своей иконки нет — кладём в тему встроенную дефолтную
+  // (default-icons/<class>.png), иначе в билде иконок не будет вовсе.
+  for (let i = 0; i < osEntries.length; i++) {
+    const e = osEntries[i];
     const cls = e.osClass || ('os' + (i + 1));
-    if (e.normalImg) blobs[`icons/${cls}.png`] = e.normalImg;
-  });
+    let src = e.normalImg;
+    if (!src) {
+      const dcls = defaultIconClassFor(e);
+      if (dcls) src = await loadDefaultIconDataUrl(dcls);
+    }
+    if (src) blobs[`icons/${cls}.png`] = src;
+  }
   // шрифты .pf2: то, что пришло с импортом (projectFiles) + загруженное пользователем (projectFonts,
   // включая шрифты, автоматически зарегистрированные при импорте архива под их реальными путями)
   Object.keys(projectFiles).forEach(k => {
