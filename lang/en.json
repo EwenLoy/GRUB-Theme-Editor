@@ -1,21 +1,85 @@
 {
   "__rules": [
-    ["^СЛОИ \\((\\d+)\\)$", "LAYERS ($1)"],
-    ["^ОС ЗАПИСИ \\((\\d+)\\)$", "OS ENTRIES ($1)"],
-    ["^Иконка \\(icons\\/(.+)\\.png\\)$", "Icon (icons/$1.png)"],
-    ["^Пункт (\\d+)$", "Item $1"],
-    ["^Ошибка разбора theme\\.txt: ?(.*)$", "theme.txt parse error: $1"],
-    ["^Не удалось разобрать tar-архив: ?(.*)$", "Failed to parse tar archive: $1"],
-    ["^Не удалось распаковать \\.tar\\.gz: ?(.*)$", "Failed to unpack .tar.gz: $1"],
-    ["^Не удалось распаковать zip-архив: ?(.*)$", "Failed to unpack zip archive: $1"],
-    ["^Не удалось прочитать файл проекта: ?(.*)$", "Failed to read project file: $1"],
-    ["^Не удалось загрузить картинку \\((.*)$", "Failed to load image ($1"],
-    ["^Экспорт: файлы не попали в ZIP: ?(.*)$", "Export: files failed to be packed into ZIP: $1"],
-    ["^Внимание: часть файлов.*$", "Warning: some files referenced by the theme are actually missing from the export:"],
-    ["^(\\d+×\\d+) · таймер (\\d+)с · любая клавиша = стоп \\(как GRUB\\)$", "$1 · timer $2s · any key = stop (like GRUB)"],
-    ["^(\\d+×\\d+) · отсчёт остановлен клавишей \\(как GRUB\\)$", "$1 · countdown stopped by key (like GRUB)"],
-    ["— файл отсутствует в экспорте, строка удалена \\(иначе GRUB тихо откатился бы на дефолт без предупреждения\\)", "— file missing from export, line removed (otherwise GRUB would silently fall back to default without warning)"],
-    [", а не по порядку\\. У пункта только одна иконка — отдельной картинки для «выбран» в GRUB нет\\.", ", not by order. An item has only one icon — there is no separate \"selected\" image in GRUB."]
+    [
+      "^Не удалось загрузить картинку \\((.*)\\)\\. Файл должен быть настоящим изображением \\(PNG/JPEG/WebP и т\\.п\\.\\)$",
+      "Failed to load image ($1). The file must be a real image (PNG/JPEG/WebP etc.)."
+    ],
+    [
+      "^(.+) — нет загруженного \\.pf2, будет использован приблизительный шрифт вместо него$",
+      "$1 — no loaded .pf2, an approximate font will be used instead"
+    ],
+    [
+      "^Не удалось загрузить картинку \\((.*)\\)\\. Файл должен быть настоящим изображением \\(PNG/JPEG/WebP и т\\.п\\.\\)$",
+      "Failed to load image ($1). The file must be a real image (PNG/JPEG/WebP etc.)."
+    ],
+    [
+      "^(.+) — нет загруженного \\.pf2, будет использован приблизительный шрифт вместо него$",
+      "$1 — no loaded .pf2, an approximate font will be used instead"
+    ],
+    [
+      "^СЛОИ \\((\\d+)\\)$",
+      "LAYERS ($1)"
+    ],
+    [
+      "^ОС ЗАПИСИ \\((\\d+)\\)$",
+      "OS ENTRIES ($1)"
+    ],
+    [
+      "^Иконка \\(icons\\/(.+)\\.png\\)$",
+      "Icon (icons/$1.png)"
+    ],
+    [
+      "^Пункт (\\d+)$",
+      "Item $1"
+    ],
+    [
+      "^Ошибка разбора theme\\.txt: ?(.*)$",
+      "theme.txt parse error: $1"
+    ],
+    [
+      "^Не удалось разобрать tar-архив: ?(.*)$",
+      "Failed to parse tar archive: $1"
+    ],
+    [
+      "^Не удалось распаковать \\.tar\\.gz: ?(.*)$",
+      "Failed to unpack .tar.gz: $1"
+    ],
+    [
+      "^Не удалось распаковать zip-архив: ?(.*)$",
+      "Failed to unpack zip archive: $1"
+    ],
+    [
+      "^Не удалось прочитать файл проекта: ?(.*)$",
+      "Failed to read project file: $1"
+    ],
+    [
+      "^Не удалось загрузить картинку \\((.*)$",
+      "Failed to load image ($1"
+    ],
+    [
+      "^Экспорт: файлы не попали в ZIP: ?(.*)$",
+      "Export: files failed to be packed into ZIP: $1"
+    ],
+    [
+      "^Внимание: часть файлов.*$",
+      "Warning: some files referenced by the theme are actually missing from the export:"
+    ],
+    [
+      "^(\\d+×\\d+) · таймер (\\d+)с · любая клавиша = стоп \\(как GRUB\\)$",
+      "$1 · timer $2s · any key = stop (like GRUB)"
+    ],
+    [
+      "^(\\d+×\\d+) · отсчёт остановлен клавишей \\(как GRUB\\)$",
+      "$1 · countdown stopped by key (like GRUB)"
+    ],
+    [
+      "— файл отсутствует в экспорте, строка удалена \\(иначе GRUB тихо откатился бы на дефолт без предупреждения\\)",
+      "— file missing from export, line removed (otherwise GRUB would silently fall back to default without warning)"
+    ],
+    [
+      ", а не по порядку\\. У пункта только одна иконка — отдельной картинки для «выбран» в GRUB нет\\.",
+      ", not by order. An item has only one icon — there is no separate \"selected\" image in GRUB."
+    ]
   ],
   "Свойства": "Properties",
   "Слои": "Layers",
@@ -47,8 +111,8 @@
   "Из архива (.zip / .tar / .tar.gz)…": "From archive (.zip / .tar / .tar.gz)…",
   "Из папки…": "From folder…",
   "На передний план": "Bring to front",
-  "На уровень выше ↑": "Move up ↑",
-  "На уровень ниже ↓": "Move down ↓",
+  "На уровень выше ↑": "One level up ↑",
+  "На уровень ниже ↓": "One level down ↓",
   "На задний план": "Send to back",
   "Дублировать": "Duplicate",
   "Удалить": "Delete",
@@ -94,7 +158,7 @@
   "Файл выбран ✓": "File selected ✓",
   "Обзор…": "Browse…",
   "Толщина, px": "Thickness, px",
-  "Толщина рамки (px)": "Border thickness (px)",
+  "Толщина рамки (px)": "Border width (px)",
   "Показывать текст": "Show text",
   "Текст (%d — секунды)": "Text (%d — seconds)",
   "Рамка меню (menu_pixmap_style)": "Menu frame (menu_pixmap_style)",
@@ -120,12 +184,12 @@
   "Фоновое изображение": "Background image",
   "Название темы": "Theme name",
   "Пресет GRUB": "GRUB preset",
-  "Масштабирование": "Scaling",
+  "Масштабирование": "Scale method",
   "Прогресс-бар": "Progress bar",
   "Меню загрузки": "Boot menu",
   "Круговой прогресс": "Circular progress",
   "Прямоугольник": "Rectangle",
-  "Картинка рамки (9-patch)": "Frame image (9-patch)",
+  "Картинка рамки (9-patch)": "Border image (9-patch)",
   "bar_style — рамка бара": "bar_style — bar frame",
   "highlight_style — заливка": "highlight_style — fill",
   "center_bitmap — картинка в центре": "center_bitmap — center image",
@@ -157,7 +221,7 @@
   "— пусто": "— empty",
   "Нет файлов": "No files",
   "Нет пунктов меню.": "No menu items.",
-  "Добавьте кнопкой «+» в заголовке.": "Add via the \"+\" button in the header.",
+  "Добавьте кнопкой «+» в заголовке.": "Add one with the «+» button in the header.",
   "Слоёв нет.": "No layers.",
   "ПКМ по холсту или кнопки сверху.": "Right-click the canvas or use the buttons above.",
   "+ Добавить пункт": "+ Add entry",
@@ -172,5 +236,9 @@
   "Закрыть": "Close",
   "Импортируй тему через Файл → Импорт…": "Import a theme via File → Import…",
   "Поиск…": "Search…",
-  "_tail": 2
+  "_tail": 2,
+  "+ Меню загрузки": "+ Boot menu",
+  "Пункт меню": "Menu item",
+  "ошибка": "error",
+  "image decode failed — файл повреждён или не является изображением": "image decode failed — file is corrupted or not an image"
 }

@@ -8,7 +8,7 @@
    ============================================================ */
 
 const I18N = {
-  lang: localStorage.getItem('grub-editor-lang') || 'ru',
+  lang: localStorage.getItem('grub-editor-lang') || 'en',
   dicts: {},           // lang -> { exact:{}, rules:[[RegExp, str]] }
   _observer: null,
   _guard: false,       // защита от зацикливания MutationObserver на своих же правках
