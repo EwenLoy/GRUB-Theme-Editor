@@ -37,6 +37,7 @@
 
     <div class="spacer"></div>
 
+    <button id="btn-lang" title="Язык интерфейса / UI language">RU</button>
     <button id="btn-preview" title="Превью GRUB (как в Construct ▶)" style="background:var(--accent-dim);border-color:var(--accent);">▶ Превью</button>
     <button id="btn-export-zip">Экспорт ZIP</button>
     <button class="primary" id="btn-export">Экспорт theme.txt</button>
@@ -239,6 +240,8 @@
 </div>
 <script src="fflate.js"></script>
 <script src="default-icons-data.js"></script>
+<script src="lang-data.js"></script>
+<script src="i18n.js"></script>
 <script src="editor.js"></script>
 <script>
 document.getElementById('btn-preview').addEventListener('click', ()=>{ if(typeof openPreview==='function') openPreview(); });
