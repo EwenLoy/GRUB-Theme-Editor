@@ -2697,28 +2697,23 @@ function importThemeFromArchiveFile(file) {
 function autoCreateOsEntriesFromIcons(fileMap) {
   const iconKeys = Object.keys(fileMap).filter(k => k.toLowerCase().includes('icons/'));
   if (iconKeys.length === 0) return;
-  // подбираем демо-пункты из реально существующих иконок, чтобы они сразу отобразились в рендере
-  const want = ['debian','ubuntu','windows','fedora','arch','manjaro','linuxmint','kali','gentoo','opensuse','endeavouros','pop-os'];
-  const picked = [];
-  want.forEach(w => {
-    const hit = iconKeys.find(k => k.toLowerCase().endsWith('/' + w + '.png') || k.toLowerCase().endsWith(w + '.png'));
-    if (hit) picked.push(hit);
-  });
-  // добиваем до 5 любыми оставшимися, кроме служебных
-  if (picked.length < 5) {
-    const rest = iconKeys.filter(k => !picked.includes(k) && !k.toLowerCase().includes('submenu') && !k.toLowerCase().includes('unknown') && !k.toLowerCase().includes('cancel')).sort();
-    while (picked.length < 5 && rest.length) picked.push(rest.shift());
-  }
-  const demoNames = {
-    'debian':'debian-13.6.0-amd64-DVD-1.iso','ubuntu':'ubuntu-24.04-desktop-amd64.iso','windows':'Win10_22H2_Chinese_Simplified_x64','fedora':'fedora-40-workstation.iso','arch':'archlinux-2024.10.01-x86_64.iso',
-    'manjaro':'manjaro-kde-24.0.0-minimal.iso','linuxmint':'linuxmint-22-cinnamon-64bit.iso','kali':'kali-linux-2024.3-installer-amd64.iso','gentoo':'gentoo-amd64.iso','opensuse':'openSUSE-Tumbleweed-DVD-x86_64.iso','endeavouros':'endeavouros-atlantis.iso','pop-os':'pop-os-22.04_amd64_intel.iso'
-  };
-  picked.slice(0, 6).forEach(rel => {
-    const base = rel.split('/').pop().replace(/\.[^.]+$/, '');
+  // ВАЖНО: берём ВСЕ иконки из папки icons/ — в реальных темах их бывают десятки и сотни,
+  // и ранний лимит "известных дистрибутивов + максимум 5-6" молча терял остальные.
+  // Служебные иконки тем (не соответствующие ни одной ОС) тоже включаем — их легко удалить,
+  // а вот потерянные при импорте иконки заметить гораздо сложнее.
+  const service = /^(unknown|submenu|cancel|placeholder|generic|blank|transparent)([-_.].*)?$/i;
+  const picked = iconKeys
+    .filter(k => /\.(png|svg)$/i.test(k))
+    .filter(k => {
+      const base = k.split('/').pop().replace(/\.[^.]+$/, '').toLowerCase();
+      return !service.test(base);
+    })
+    .sort();
+  picked.forEach(rel => {
     const fileName = rel.split('/').pop();
-    const name = demoNames[base.toLowerCase()] || base;
+    const base = fileName.replace(/\.[^.]+$/, '');
     const url = fileMap[rel];
-    osEntries.push({ id: osIdCounter++, name, osClass: base.toLowerCase(), normalImg: url, selectedImg: url, normalName: fileName, selectedName: fileName });
+    osEntries.push({ id: osIdCounter++, name: base, osClass: base.toLowerCase(), normalImg: url, selectedImg: url, normalName: fileName, selectedName: fileName });
     cacheImage(url);
   });
 }
@@ -2989,8 +2984,8 @@ function applyParsedTheme(parsed, fileMap) {
     // если сгенерировали больше чем строк в меню — ограничим itemCount, чтобы предпросмотр не резал лишнее
     if (osEntries.length > 0) {
       layers.filter(l => l.type === 'menu').forEach(l => {
-        // не увеличиваем выше явно заданного itemCount более чем в 2 раза, чтобы не ломать верстку
-        if (l.itemCount < Math.min(osEntries.length, 8)) l.itemCount = Math.min(osEntries.length, 8);
+        // подгоняем itemCount под реальное число записей (потолок 20 = предел поля инспектора)
+        if (l.itemCount < Math.min(osEntries.length, 20)) l.itemCount = Math.min(osEntries.length, 20);
       });
     }
     resizeStage();
