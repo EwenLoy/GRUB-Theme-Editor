@@ -1691,7 +1691,9 @@ function buildThemeTxt() {
     // одиночная картинка (string) → пишем plain-путь без wildcard, 9-slice объект — с wildcard
     if (theme.terminalBoxImg) {
       if (typeof theme.terminalBoxImg === 'object') {
-        lines.push(`terminal-box: "${theme.terminalBoxPattern || 'assets/terminal_box/terminal_*.png'}"`);
+        // нарезка реально экспортируется под assets/terminal_box/terminal_*.png —
+        // исходный паттерн импорта (terminal_box_*.png) в новом архиве не существует
+        lines.push(`terminal-box: "assets/terminal_box/terminal_*.png"`);
       } else {
         lines.push(`terminal-box: "terminal_box.png"`);
       }
@@ -1742,27 +1744,31 @@ function buildThemeTxt() {
       if (l.maxItemsShown > 0) lines.push(`  max_items_shown = ${l.maxItemsShown}`);
       // menu_*_pixmap_style: одиночная картинка (string) пишется БЕЗ wildcard
       // (GRUB видит только X.png, а не X_nw.png...), 9-slice объект — с wildcard X_*.png.
+      // ВАЖНО: если 9-slice объект реально загружен (есть файлы), они экспортируются под
+      // assets/menu-<id>/..., поэтому в theme.txt должен попасть ИМЕННО этот путь.
+      // Исходный паттерн из импорта (l.menuBorderPattern) ссылается на файлы, которых
+      // в новом экспорте нет, — санитайзер будет честно вырезать такую строку.
       const menuPix = l.menuBorderImg
-        ? (typeof l.menuBorderImg === 'object' ? (l.menuBorderPattern || `assets/menu-${l.id}/menu_*.png`) : `assets/menu-${l.id}/menu.png`)
+        ? (typeof l.menuBorderImg === 'object' ? `assets/menu-${l.id}/menu_*.png` : `assets/menu-${l.id}/menu.png`)
         : l.menuBorderPattern;
       if (menuPix) lines.push(`  menu_pixmap_style = "${menuPix}"`);
       const itemPix = l.menuNormalBg
-        ? (typeof l.menuNormalBg === 'object' ? (l.menuNormalPattern || `assets/menu-${l.id}/item_*.png`) : `assets/menu-${l.id}/item.png`)
+        ? (typeof l.menuNormalBg === 'object' ? `assets/menu-${l.id}/item_*.png` : `assets/menu-${l.id}/item.png`)
         : l.menuNormalPattern;
       if (itemPix) lines.push(`  item_pixmap_style = "${itemPix}"`);
       const selPix = l.menuSelectedBg
-        ? (typeof l.menuSelectedBg === 'object' ? (l.menuSelectedPattern || `assets/menu-${l.id}/select_*.png`) : `assets/menu-${l.id}/select.png`)
+        ? (typeof l.menuSelectedBg === 'object' ? `assets/menu-${l.id}/select_*.png` : `assets/menu-${l.id}/select.png`)
         : l.menuSelectedPattern;
       if (selPix) lines.push(`  selected_item_pixmap_style = "${selPix}"`);
       lines.push(`  scrollbar = ${l.scrollbarEnabled ? 'true' : 'false'}`);
       if (l.scrollbarEnabled) {
         // scrollbar_frame/thumb: одиночная картинка → plain-путь без wildcard, 9-slice — с wildcard
         if (l.scrollbarFrameImg) {
-          const sf = typeof l.scrollbarFrameImg === 'object' ? (l.scrollbarFramePattern || `assets/menu-${l.id}/scroll_frame_*.png`) : `assets/menu-${l.id}/scroll_frame.png`;
+          const sf = typeof l.scrollbarFrameImg === 'object' ? `assets/menu-${l.id}/scroll_frame_*.png` : `assets/menu-${l.id}/scroll_frame.png`;
           lines.push(`  scrollbar_frame = "${sf}"`);
         }
         if (l.scrollbarThumbImg) {
-          const st = typeof l.scrollbarThumbImg === 'object' ? (l.scrollbarThumbPattern || `assets/menu-${l.id}/scroll_thumb_*.png`) : `assets/menu-${l.id}/scroll_thumb.png`;
+          const st = typeof l.scrollbarThumbImg === 'object' ? `assets/menu-${l.id}/scroll_thumb_*.png` : `assets/menu-${l.id}/scroll_thumb.png`;
           lines.push(`  scrollbar_thumb = "${st}"`);
         }
         lines.push(`  scrollbar_thumb_overlay = ${l.scrollbarThumbOverlay ? 'true' : 'false'}`);
@@ -1789,11 +1795,11 @@ function buildThemeTxt() {
       if (l.hasBorderColor && l.barBorderColor) lines.push(`  border_color = "${l.barBorderColor}"`);
       // bar_style/highlight_style: одиночная картинка → plain-путь без wildcard, 9-slice — с wildcard
       if (l.barStyleImg) {
-        const bp = typeof l.barStyleImg === 'object' ? (l.barStylePattern || `assets/progress-${l.id}/frame_*.png`) : `assets/progress-${l.id}/frame.png`;
+        const bp = typeof l.barStyleImg === 'object' ? `assets/progress-${l.id}/frame_*.png` : `assets/progress-${l.id}/frame.png`;
         lines.push(`  bar_style = "${bp}"`);
       }
       if (l.highlightStyleImg) {
-        const hp = typeof l.highlightStyleImg === 'object' ? (l.highlightStylePattern || `assets/progress-${l.id}/highlight_*.png`) : `assets/progress-${l.id}/highlight.png`;
+        const hp = typeof l.highlightStyleImg === 'object' ? `assets/progress-${l.id}/highlight_*.png` : `assets/progress-${l.id}/highlight.png`;
         lines.push(`  highlight_style = "${hp}"`);
         lines.push(`  highlight_overlay = ${l.highlightOverlay ? 'true' : 'false'}`);
       }
@@ -2319,15 +2325,21 @@ async function buildExportBlobs() {
       if (m && fileRefProps.includes(m[2])) {
         const pattern = m[3];
         // если это 9-slice (содержит *), файл может называться иначе для каждого куска —
-        // проверяем, есть ли ХОТЯ БЫ ОДИН файл в архиве, чей путь совпадает с этим паттерном
-        // (после подстановки *) или который был явно собран под тем же префиксом.
+        // проверяем, есть ли ХОТЯ БЫ ОДИН файл в архиве, чей путь ИЛИ ИМЯ ФАЙЛА (без папок,
+        // как GRUB видит пути относительно папки темы) совпадает с этим паттерном
         const isWildcard = pattern.includes('*');
+        const wildcardRe = isWildcard
+          ? new RegExp(pattern.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*'), 'i')
+          : null;
         const found = isWildcard
           ? Object.keys(files).some(k => {
-              const re = new RegExp('^' + pattern.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 'i');
-              return re.test(k);
+              // сравниваем и полный путь, и имя файла без папок — GRUB ищет относительно theme.txt,
+              // а файлы в экспорте могут лежать в подпапках (assets/...)
+              const base = k.slice(Math.max(k.lastIndexOf('/'), k.lastIndexOf('\\')) + 1);
+              return wildcardRe.test(k) || wildcardRe.test(base);
             })
-          : Object.keys(files).some(k => k.toLowerCase() === pattern.toLowerCase());
+          : Object.keys(files).some(k => k.toLowerCase() === pattern.toLowerCase()
+              || k.slice(Math.max(k.lastIndexOf('/'), k.lastIndexOf('\\')) + 1).toLowerCase() === pattern.toLowerCase());
         if (!found) {
           sanitizeWarnings.push(`${m[2]} = "${pattern}" — файл отсутствует в экспорте, строка удалена (иначе GRUB тихо откатился бы на дефолт без предупреждения)`);
           continue; // строку не сохраняем
