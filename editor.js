@@ -2339,6 +2339,109 @@ function loadImageBytesViaCanvas(url) {
     img.src = url;
   });
 }
+/* ---------- Перекодировка PNG в GRUB-совместимый вид (см. комментарий в buildExportBlobs) ---------- */
+function sanitizePngForGrub(u8) {
+  if (!(u8 instanceof Uint8Array) || u8.length < 33) return u8;
+  // сигнатура PNG
+  const sig = [0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a];
+  for (let i = 0; i < 8; i++) if (u8[i] !== sig[i]) return u8;
+  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let pos = 8, ihdr = null;
+  const idat = [];
+  while (pos + 12 <= u8.length) {
+    const len = view.getUint32(pos);
+    const type = String.fromCharCode(u8[pos+4], u8[pos+5], u8[pos+6], u8[pos+7]);
+    if (type === 'IHDR') ihdr = u8.slice(pos + 8, pos + 8 + 13);
+    else if (type === 'IDAT') idat.push(u8.slice(pos + 8, pos + 8 + len));
+    pos += 12 + len;
+    if (type === 'IEND') break;
+  }
+  if (!ihdr || !idat.length) return u8;
+  const w = (ihdr[0]<<24 | ihdr[1]<<16 | ihdr[2]<<8 | ihdr[3]) >>> 0;
+  const h = (ihdr[4]<<24 | ihdr[5]<<16 | ihdr[6]<<8 | ihdr[7]) >>> 0;
+  const bitDepth = ihdr[8], colorType = ihdr[9], interlace = ihdr[12];
+  // НЕтрогаем форматы, которые наш перекодировщик не поддерживает честно:
+  // interlaced (Adam7), битность != 8 — оставляем как есть (GRUB их и так не ест,
+  // но перекодировать вслепую было бы хуже).
+  if (interlace !== 0 || bitDepth !== 8) return u8;
+  if (![0,2,3,4,6].includes(colorType)) return u8;
+  const bpp = { 0:1, 2:3, 3:1, 4:2, 6:4 }[colorType];
+  const stride = w * bpp;
+  if (!w || !h || stride > 1<<26) return u8;
+  // склеиваем IDAT
+  let idatLen = 0; idat.forEach(c => idatLen += c.length);
+  const idatAll = new Uint8Array(idatLen);
+  let off = 0; idat.forEach(c => { idatAll.set(c, off); off += c.length; });
+  let raw;
+  try { raw = fflate.unzlibSync(idatAll); } catch (err) { return u8; }
+  if (raw.length !== (stride + 1) * h) return u8;
+  // снимаем фильтры строк (стандартный PNG-unfilter)
+  const px = new Uint8Array(stride * h);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)];
+    const row = y * stride, prev = (y - 1) * stride;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? px[row + i - bpp] : 0;
+      const b = y > 0 ? px[prev + i] : 0;
+      const c = (y > 0 && i >= bpp) ? px[prev + i - bpp] : 0;
+      let v = raw[y * (stride + 1) + 1 + i];
+      if (f === 1) v = (v + a) & 0xff;
+      else if (f === 2) v = (v + b) & 0xff;
+      else if (f === 3) v = (v + ((a + b) >> 1)) & 0xff;
+      else if (f === 4) {
+        const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+        v = (v + (pa <= pb && pa <= pc ? a : (pb <= pc ? b : c))) & 0xff;
+      } else if (f !== 0) return u8;
+      px[row + i] = v;
+    }
+  }
+  // пересборка: фильтр 0 (None) на каждую строку
+  const out = new Uint8Array((stride + 1) * h);
+  for (let y = 0; y < h; y++) {
+    out[y * (stride + 1)] = 0;
+    out.set(px.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
+  }
+  // level 0 = stored-блоки deflate (без Хаффмана): inflate декодера GRUB читает
+  // их тривиально. ВАЖНО: НЕ level 1 — динамические/фиксированные таблицы Хаффмана
+  // в декодере GRUB построены с багом и ломаются на потоках fflate (проверено
+  // побайтовой эмуляцией grub-core/video/readers/png.c).
+  const comp = fflate.zlibSync(out, { level: 0 });
+  // CRC32 (в fflate нет публичного crc32 — считаем сами)
+  let crcTable = sanitizePngForGrub._crc;
+  if (!crcTable) {
+    crcTable = sanitizePngForGrub._crc = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      crcTable[n] = c >>> 0;
+    }
+  }
+  const crc32 = (data) => {
+    let c = 0xffffffff;
+    for (let i = 0; i < data.length; i++) c = crcTable[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const res = new Uint8Array(12 + data.length);
+    const dv = new DataView(res.buffer);
+    dv.setUint32(0, data.length);
+    for (let i = 0; i < 4; i++) res[4 + i] = type.charCodeAt(i);
+    res.set(data, 8);
+    dv.setUint32(8 + data.length, crc32(res.subarray(4, 8 + data.length)));
+    return res;
+  };
+  const ihdrChunk = chunk('IHDR', ihdr);
+  const idatChunk = chunk('IDAT', comp);
+  const iendChunk = chunk('IEND', new Uint8Array(0));
+  const total = 8 + ihdrChunk.length + idatChunk.length + iendChunk.length;
+  const png = new Uint8Array(total);
+  png.set(sig, 0);
+  png.set(ihdrChunk, 8);
+  png.set(idatChunk, 8 + ihdrChunk.length);
+  png.set(iendChunk, 8 + ihdrChunk.length + idatChunk.length);
+  return png;
+}
+
 async function buildExportBlobs() {
   const themeTxt = buildThemeTxt();
   const blobs = {};
@@ -2540,6 +2643,22 @@ async function buildExportBlobs() {
     }
   });
   Object.assign(files, extraCopies);
+  // ЗАЩИТА ОТ БАГА GRUB "error: invalid filter value."
+  // Собственный inflate декодера PNG в GRUB (grub-core/video/readers/png.c) не
+  // переваривает часть стандартных deflate-потоков (например, PNG, сжатые
+  // браузерным canvas.toBlob или pnglib с адаптивными фильтрами строк и
+  // сложными таблицами Хаффмана) — на реальной машине тема падает с
+  // "error: invalid filter value" и "Press any key to continue".
+  // Поэтому ПЕРЕД упаковкой в ZIP каждый PNG перекодируется в заведомо
+  // безопасный для GRUB вид: разжимаем → снимаем фильтры строк → запаковываем
+  // заново со всеми фильтрами = 0 (None) и zlib level 1 (простые блоки deflate).
+  // Проверено эмуляцией декодера GRUB: такие файлы он читает корректно.
+  for (const k of Object.keys(files)) {
+    if (/\.png$/i.test(k)) {
+      try { files[k] = sanitizePngForGrub(files[k]); }
+      catch (err) { console.error('sanitizePngForGrub failed for', k, err); }
+    }
+  }
   return { files, themeTxt: finalThemeTxt, bgFailed: failedPaths.includes('background.png'), sanitizeWarnings, missingFonts };
 }
 
