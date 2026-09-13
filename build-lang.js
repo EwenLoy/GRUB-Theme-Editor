@@ -1,5 +1,4 @@
 // сборка lang-data.js: встраивает lang/*.json в один файл (работа через file://)
-// + применение translations.js (если присутствует) к lang/en.json
 const fs = require('fs');
 // докладываем недостающие переводы, если translations.json есть рядом
 if (fs.existsSync('translations.json')) {

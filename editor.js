@@ -902,9 +902,37 @@ function defaultOsEntries() {
 let osEntries = defaultOsEntries();
 let osIdCounter = 3;
 
+// сколько строк показывает меню загрузки (по всем menu-слоям)
+function getMenuRowsCount() {
+  let n = 0;
+  layers.filter(l => l.type === 'menu').forEach(l => { n = Math.max(n, l.itemCount || 0); });
+  return n;
+}
+// создать записи для всех строк меню, у которых ещё нет своей записи:
+// каждый пункт меню получает иконку по своему --class, поэтому записей
+// должно быть не меньше, чем строк в меню. Класс 'unknown' -> иконка
+// unknown.png из библиотеки (как поступает сам GRUB для незнакомых классов).
+function autofillOsEntries() {
+  const rows = getMenuRowsCount();
+  for (let i = osEntries.length; i < rows; i++) {
+    osEntries.push({ id: osIdCounter++, name: 'Пункт ' + (i + 1), osClass: 'unknown', normalImg: null, selectedImg: null });
+  }
+  renderOsConfig();
+  if (!getLayer(selectedId)) renderInspector(); else drawEditor();
+}
+// подсказка о несовпадении числа строк меню и записей (+ кнопка автозаполнения)
+function osConfigAutofillHint() {
+  const rows = getMenuRowsCount();
+  if (rows <= osEntries.length) return '';
+  return '<div class="hint-small" style="margin:0 0 8px;">⚠ Строк в меню: <b>' + rows + '</b>, записей: <b>' + osEntries.length
+    + '</b>. Каждому пункту нужна своя запись — иначе GRUB нарисует пункт без иконки. '
+    + '<button data-os-autofill style="padding:2px 8px;">Заполнить по меню</button></div>';
+}
+
 function addOsEntry() {
   osEntries.push({ id: osIdCounter++, name: 'Новая запись', osClass: 'os', normalImg: null, selectedImg: null });
   renderOsConfig();
+
 }
 function removeOsEntry(id) {
   osEntries = osEntries.filter(e => e.id !== id);
@@ -922,9 +950,11 @@ function renderOsConfig() {
   if (!body) return;
   body.innerHTML = '';
   if (osEntries.length === 0) {
-    body.innerHTML = '<div class="empty-msg">Нет пунктов меню.<br>Добавьте кнопкой «+» в заголовке.</div>';
+    body.innerHTML = osConfigAutofillHint() + '<div class="empty-msg">Нет записей OS.<br>Добавьте кнопкой «+» в заголовке.</div>';
+    bindOsConfigEvents(body);
     return;
   }
+  body.insertAdjacentHTML('beforeend', osConfigAutofillHint());
   osEntries.forEach(e => {
     const div = document.createElement('div');
     div.className = 'os-entry';
@@ -970,6 +1000,7 @@ function renderOsConfig() {
 
     body.appendChild(div);
   });
+  body.querySelectorAll('[data-os-autofill]').forEach(btn => btn.addEventListener('click', autofillOsEntries));
 }
 
 // btn создаётся динамически в ensureOsConfigBtn
@@ -1310,8 +1341,8 @@ function layerIcon(type) {
    ============================================================ */
 
 function buildOsConfigHtml() {
-  if (osEntries.length === 0) return '<div class="empty-msg">Нет пунктов меню.<br>Добавьте кнопкой «+» в заголовке.</div>';
-  return osEntries.map(e => `
+  if (osEntries.length === 0) return osConfigAutofillHint() + '<div class="empty-msg">Нет записей OS. Добавьте кнопкой «+» в заголовке.</div>';
+  return osConfigAutofillHint() + osEntries.map(e => `
       <div class="os-entry" data-os-id="${e.id}">
         <div class="os-entry-head">
           <input type="text" value="${escapeHtml(e.name)}" data-os-name="${e.id}">
@@ -1335,6 +1366,7 @@ function buildOsConfigHtml() {
     `).join('');
 }
 function bindOsConfigEvents(root) {
+  root.querySelectorAll('[data-os-autofill]').forEach(btn => btn.addEventListener('click', autofillOsEntries));
   root.querySelectorAll('[data-os-name]').forEach(inp => {
     const id = Number(inp.getAttribute('data-os-name'));
     const e = osEntries.find(x => x.id === id);

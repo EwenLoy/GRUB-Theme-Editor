@@ -1,5 +1,8 @@
 {
   "exact": {
+    "Заполнить по меню": "Fill from menu",
+    "Нет записей OS. Добавьте кнопкой «+» в заголовке.": "No OS entries. Add them with the «+» button in the header.",
+    "Нет записей OS.<br>Добавьте кнопкой «+» в заголовке.": "No OS entries.<br>Add them with the «+» button in the header.",
     "ВСТАВКА": "INSERT",
     "+ Меню": "+ Menu",
     "+ Меню загрузки": "+ Boot menu",
@@ -55,6 +58,7 @@
     "image decode failed — файл повреждён или не является изображением": "image decode failed — file is corrupted or not an image"
   },
   "rules": [
+    ["^⚠ Строк в меню: <b>(\\d+)</b>, записей: <b>(\\d+)</b>\\. Каждому пункту нужна своя запись — иначе GRUB нарисует пункт без иконки\\.$", "⚠ Menu rows: <b>$1</b>, entries: <b>$2</b>. Each menu item needs its own entry — otherwise GRUB draws the item without an icon."],
     ["^Не удалось загрузить картинку \\((.*)\\)\\. Файл должен быть настоящим изображением \\(PNG/JPEG/WebP и т\\.п\\.\\)$", "Failed to load image ($1). The file must be a real image (PNG/JPEG/WebP etc.)."],
     ["^(.+) — нет загруженного \\.pf2, будет использован приблизительный шрифт вместо него$", "$1 — no loaded .pf2, an approximate font will be used instead"]
   ]
