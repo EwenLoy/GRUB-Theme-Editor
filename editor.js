@@ -1395,28 +1395,22 @@ function renderInspector() {
     });
   }
 
-  // Кнопка "+ Загрузить свой шрифт .pf2" в инспекторе меню — та же логика, что в дереве проекта
+  // Кнопка "+ Загрузить свой шрифт .pf2" в инспекторе меню — читает реальное имя из .pf2
+  // (или честно угадывает по имени файла, если бинарник нечитаем) и запоминает РЕАЛЬНЫЙ
+  // путь файла — при экспорте используется именно он, без придуманного переименования.
   const fontBtn = el.querySelector('[data-action="upload-menu-font"]');
   if (fontBtn) {
     fontBtn.addEventListener('click', () => {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.accept = '.pf2';
-      inp.onchange = (ev) => {
+      inp.onchange = async (ev) => {
         const f = ev.target.files[0]; if (!f) return;
-        const url = URL.createObjectURL(f);
-        const base = f.name.replace(/\.pf2$/i, '');
-        const m = base.match(/^(.*?)[-_](bold|regular|italic|bolditalic)[-_](\d+)$/i);
-        let fontName = base.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        let style = 'Regular', size = l.fontSize || 22;
-        if (m) {
-          fontName = m[1].replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          style = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
-          size = parseInt(m[3], 10) || size;
-        }
-        projectFonts.push({ name: `${fontName} ${style} ${size}`, file: 'font/' + f.name, url });
-        l.fontName = fontName;
+        const entry = await addProjectFont(f);
+        l.itemFontRef = entry.name;   // item_font ссылается на это точное имя шрифта
+        l.fontName = entry.name.replace(/\s+(Bold|Regular|Italic|BoldItalic)\s+\d+$/i, '');
         l.name = defaultName(l);
         renderAll();
+        renderInspector();
       };
       inp.click();
     });
@@ -1565,8 +1559,21 @@ function buildThemeTxt() {
       lines.push(`  item_padding = ${l.itemPadding}`);
       lines.push(`  item_spacing = ${l.itemSpacing}`);
       lines.push(`  item_icon_space = ${l.itemIconSpace}`);
-      lines.push(`  item_font = "${l.fontName || 'DejaVu Sans Mono'} Regular ${l.fontSize}"`);
-      lines.push(`  selected_item_font = "${l.fontName || 'DejaVu Sans Mono'} Bold ${l.selectedFontSize || l.fontSize}"`);
+      // item_font: если пришло из импорта — пишем ТОЧНУЮ исходную строку (itemFontRef),
+      // так она гарантированно совпадает с реальным .pf2-файлом, который лежит в архиве.
+      // Для слоя, созданного в редакторе с нуля (нет itemFontRef), синтезируем как раньше.
+      lines.push(`  item_font = "${l.itemFontRef || `${l.fontName || 'DejaVu Sans Mono'} Regular ${l.fontSize}`}"`);
+      // selected_item_font: пишем ТОЛЬКО если в оригинале он реально был задан отдельно
+      // (hasSeparateSelectedFont) — иначе GRUB и так возьмёт item_font для обоих состояний,
+      // различая их по цвету (item_color/selected_item_color). Раньше редактор ВСЕГДА
+      // дописывал несуществующий "... Bold N" вариант, которого могло не быть в архиве вообще.
+      if (l.hasSeparateSelectedFont) {
+        lines.push(`  selected_item_font = "${l.selectedItemFontRef || `${l.fontName || 'DejaVu Sans Mono'} Bold ${l.selectedFontSize || l.fontSize}`}"`);
+      } else if (l.selectedFontSize) {
+        // пользователь в редакторе явно задал отдельный размер для выбранного пункта —
+        // тогда отдельный selected_item_font всё же нужен, синтезируем его
+        lines.push(`  selected_item_font = "${l.fontName || 'DejaVu Sans Mono'} Bold ${l.selectedFontSize}"`);
+      }
       lines.push(`  item_color = "${l.color}"`);
       lines.push(`  selected_item_color = "${l.selectedColor}"`);
       lines.push(`  icon_width = ${l.iconWidth || 32}`);
@@ -1616,7 +1623,9 @@ function buildThemeTxt() {
       lines.push(`  height = ${l.h}`);
       lines.push(`  fg_color = "${l.barColor}"`);
       lines.push(`  bg_color = "${l.barBg}"`);
-      lines.push(`  border_color = "#ffffff"`);
+      // border_color: раньше писался ВСЕГДА как фиксированный "#ffffff", даже если в оригинале
+      // его не было вовсе (как в astronaut-теме) — теперь пишем только если он реально задан.
+      if (l.hasBorderColor && l.barBorderColor) lines.push(`  border_color = "${l.barBorderColor}"`);
       // bar_style/highlight_style: одиночная картинка → plain-путь без wildcard, 9-slice — с wildcard
       if (l.barStyleImg) {
         const bp = typeof l.barStyleImg === 'object' ? (l.barStylePattern || `assets/progress-${l.id}/frame_*.png`) : `assets/progress-${l.id}/frame.png`;
@@ -1631,7 +1640,7 @@ function buildThemeTxt() {
         lines.push(`  show_text = true`);
         lines.push(`  text = "${l.barText}"`);
         lines.push(`  text_color = "${l.barTextColor || 'white'}"`);
-        lines.push(`  font = "${l.barFontName || l.fontName || 'DejaVu Sans Mono'} Regular ${l.barFontSize || 16}"`);
+        lines.push(`  font = "${l.barFontRef || `${l.barFontName || l.fontName || 'DejaVu Sans Mono'} Regular ${l.barFontSize || 16}`}"`);
       }
       lines.push(`}`);
     }
@@ -1656,7 +1665,7 @@ function buildThemeTxt() {
       lines.push(`  top = ${coord(l.y, STAGE_H)}`);
       lines.push(`  width = ${coord(l.w, STAGE_W)}`);
       lines.push(`  text = "${l.text}"`);
-      lines.push(`  font = "${l.fontName || 'DejaVu Sans Mono'} ${l.fontBold ? 'Bold' : 'Regular'} ${l.fontSize}"`);
+      lines.push(`  font = "${l.fontRef || `${l.fontName || 'DejaVu Sans Mono'} ${l.fontBold ? 'Bold' : 'Regular'} ${l.fontSize}`}"`);
       lines.push(`  color = "${l.color}"`);
       lines.push(`  align = "${l.align || 'left'}"`);
       lines.push(`}`);
@@ -2083,22 +2092,29 @@ async function buildExportBlobs() {
     const cls = e.osClass || ('os' + (i + 1));
     if (e.normalImg) blobs[`icons/${cls}.png`] = e.normalImg;
   });
-  // шрифты .pf2: то, что пришло с импортом (projectFiles) + загруженное пользователем (projectFonts)
+  // шрифты .pf2: то, что пришло с импортом (projectFiles) + загруженное пользователем (projectFonts,
+  // включая шрифты, автоматически зарегистрированные при импорте архива под их реальными путями)
   Object.keys(projectFiles).forEach(k => {
     if (/\.pf2$/i.test(k)) blobs[k] = projectFiles[k];
   });
   for (const f of projectFonts) {
     if (f.url && !blobs[f.file]) blobs[f.file] = f.url;
   }
-  // дубли: все используемые в теме имена шрифтов должны существовать как font/*.pf2,
-  // иначе GRUB упадёт на мелкий встроенный шрифт. Недостающие дублируем из любого
-  // имеющегося .pf2 (лучше кривой размер знакомого шрифта, чем дефолт 16px).
+  // Шрифты, которые тема РЕАЛЬНО использует (item_font/title-font/font...), но для которых
+  // нет ни одного загруженного .pf2 файла с таким именем — честно предупреждаем, вместо того
+  // чтобы молча подсунуть первый попавшийся .pf2 (тот же класс проблемы, что был с рамкой
+  // меню: GRUB получит файл, который не совпадает с тем, что написано в theme.txt по смыслу,
+  // и либо покажет не тот шрифт/размер, либо просто его не найдёт).
+  const missingFonts = [];
   {
     const pf2keys = Object.keys(blobs).filter(k => /\.pf2$/i.test(k));
-    if (pf2keys.length) {
-      for (const { file } of projectFontFiles()) {
-        if (!blobs[file]) {
-          // ищем pf2 с похожим именем семейства, иначе первый попавшийся
+    for (const { font, file, missing } of projectFontFiles()) {
+      if (blobs[file]) continue; // уже есть настоящий файл под этим путём
+      if (missing) {
+        missingFonts.push(`${font} — нет загруженного .pf2, будет использован приблизительный шрифт вместо него`);
+        // всё равно подставляем любой существующий .pf2, чтобы GRUB не упал на дефолт целиком —
+        // но пользователь теперь ЯВНО предупреждён, что это не точное совпадение.
+        if (pf2keys.length) {
           const fam = file.split('/').pop().split('-')[0];
           const same = pf2keys.find(k => k.toLowerCase().includes('/' + fam));
           blobs[file] = blobs[same || pf2keys[0]];
@@ -2177,11 +2193,11 @@ async function buildExportBlobs() {
     }
   });
   Object.assign(files, extraCopies);
-  return { files, themeTxt: finalThemeTxt, bgFailed: failedPaths.includes('background.png'), sanitizeWarnings };
+  return { files, themeTxt: finalThemeTxt, bgFailed: failedPaths.includes('background.png'), sanitizeWarnings, missingFonts };
 }
 
 async function exportZip() {
-  const { files, sanitizeWarnings } = await buildExportBlobs();
+  const { files, sanitizeWarnings, missingFonts } = await buildExportBlobs();
   // grub.cfg-сниппет: какие loadfont нужны теме (имена из theme.txt -> font/*.pf2)
   try {
     const need = projectFontFiles().map(x => x.file);
@@ -2202,12 +2218,15 @@ async function exportZip() {
     }
     files['_HOW_TO_INSTALL.txt'] = fflate.strToU8(cfg);
   } catch {}
-  if (sanitizeWarnings && sanitizeWarnings.length) {
+  const allWarnings = [
+    ...(sanitizeWarnings || []),
+    ...(missingFonts || [])
+  ];
+  if (allWarnings.length) {
     alert(
-      'Внимание: в ZIP НЕ попали некоторые картинки (рамки/подложки), на которые ссылалась тема.\n' +
-      'Строки с ними удалены из theme.txt, иначе GRUB бы тихо показал голый текст без предупреждения:\n\n' +
-      sanitizeWarnings.map(w => '• ' + w).join('\n') +
-      '\n\nЗагрузите нужные PNG заново в соответствующем слое/панели и экспортируйте снова.'
+      'Внимание: часть файлов, на которые ссылается тема, реально отсутствует в экспорте:\n\n' +
+      allWarnings.map(w => '• ' + w).join('\n') +
+      '\n\nЗагрузите недостающие PNG/.pf2 в соответствующем слое/панели и экспортируйте снова.'
     );
   }
   const zipped = fflate.zipSync(files, { level: 6 });
@@ -2547,6 +2566,29 @@ function applyParsedTheme(parsed, fileMap) {
     osEntries = [];
     osIdCounter = 1;
     selectedId = null;
+    projectFonts = [];
+
+    // Регистрируем ВСЕ .pf2 файлы темы в projectFonts с их ТОЧНЫМ путём (fileMap ключи —
+    // оригинальные относительные пути архива, lowercase) — так экспорт сможет сослаться
+    // на реальный файл вместо придуманного редактором имени. Настоящее имя шрифта
+    // (что должно идти в item_font/title-font и т.п.) читаем из бинарного заголовка .pf2,
+    // асинхронно; пока чтение идёт, слои используют имя, разобранное прямо из theme.txt
+    // (см. ниже itemFontRef) — оно и так корректно, чтение .pf2 лишь уточняет данные
+    // для инспектора и на случай ручного создания темы с нуля.
+    Object.keys(fileMap).forEach(relLower => {
+      if (!/\.pf2$/i.test(relLower)) return;
+      const url = fileMap[relLower];
+      fetch(url).then(r => r.blob()).then(blob => {
+        const asFile = new File([blob], relLower.split('/').pop(), { type: 'application/octet-stream' });
+        return readPf2FontName(asFile);
+      }).then(name => {
+        if (!name) name = guessFontNameFromFileName(relLower.split('/').pop());
+        if (!projectFonts.some(pf => pf.file.toLowerCase() === relLower)) {
+          projectFonts.push({ name, file: relLower, url, realFile: true });
+          renderInspector();
+        }
+      }).catch(() => {});
+    });
 
     // --- глобальные свойства темы ---
     bgColor = globals['desktop-color'] || '#000000';
@@ -2560,8 +2602,9 @@ function applyParsedTheme(parsed, fileMap) {
     theme.titleVisible = !!(globals['title-text'] && globals['title-text'].trim());
     theme.titleText = globals['title-text'] || '';
     if (globals['title-font']) {
-      const tf = parseFontString(globals['title-font']);
-      theme.titleFont = `${tf.name} ${tf.bold ? 'Bold' : 'Regular'} ${tf.size}`;
+      // сохраняем ТОЧНУЮ строку шрифта из импортированной темы как есть — это и есть
+      // то самое имя, под которым GRUB найдёт .pf2 (или уже нашёл в оригинале), не пересобираем.
+      theme.titleFont = globals['title-font'];
     }
     theme.titleColor = globals['title-color'] || theme.titleColor;
 
@@ -2605,8 +2648,24 @@ function applyParsedTheme(parsed, fileMap) {
       if (block.type === 'boot_menu') {
         if(layers.some(l=>l.type==='menu')) return;
         const l = makeLayer('menu', { x, y, w, h });
-        if (p.item_font) { const f = parseFontString(p.item_font); l.fontName = f.name; l.fontSize = f.size; }
-        if (p.selected_item_font) { const f = parseFontString(p.selected_item_font); l.selectedFontSize = f.size; }
+        if (p.item_font) {
+          const f = parseFontString(p.item_font);
+          l.fontName = f.name; l.fontSize = f.size; l.fontBold = f.bold;
+          l.itemFontRef = p.item_font; // точная строка из оригинала — используется при экспорте как есть
+        }
+        if (p.selected_item_font) {
+          const f = parseFontString(p.selected_item_font);
+          l.selectedFontSize = f.size;
+          l.selectedItemFontRef = p.selected_item_font; // отдельный шрифт для выбранного пункта БЫЛ в оригинале
+          l.hasSeparateSelectedFont = true;
+        } else {
+          // GRUB-темы часто вообще не задают selected_item_font — тогда GRUB использует
+          // item_font для обоих состояний, различая их только цветом (item_color/selected_item_color).
+          // Раньше редактор ВСЕГДА досочинял "... Bold N" для выбранного, даже если в оригинале
+          // этого не было и такого .pf2-файла может не существовать вовсе — это и есть баг,
+          // из-за которого повторный экспорт темы без Bold-варианта шрифта ломался.
+          l.hasSeparateSelectedFont = false;
+        }
         if (p.item_color) l.color = p.item_color;
         if (p.selected_item_color) l.selectedColor = p.selected_item_color;
         if (p.icon_width) l.iconWidth = parseInt(p.icon_width, 10);
@@ -2657,7 +2716,11 @@ function applyParsedTheme(parsed, fileMap) {
       else if (block.type === 'label') {
         const lw = p.width !== undefined ? coordToPx(p.width, newW) : 400;
         const l = makeLayer('label', { x, y, w: lw, h: 40, text: p.text || '' });
-        if (p.font) { const f = parseFontString(p.font); l.fontName = f.name; l.fontBold = f.bold; l.fontSize = f.size; }
+        if (p.font) {
+          const f = parseFontString(p.font);
+          l.fontName = f.name; l.fontBold = f.bold; l.fontSize = f.size;
+          l.fontRef = p.font; // точная строка шрифта из оригинала — используется при экспорте как есть
+        }
         if (p.color) l.color = p.color;
         if (p.align) l.align = p.align;
         if (p.id === '__timeout__') l.useTimeoutId = true;
@@ -2669,11 +2732,18 @@ function applyParsedTheme(parsed, fileMap) {
         const l = makeLayer('progress', { x, y, w, h: h || 28 });
         if (p.fg_color) l.barColor = p.fg_color;
         if (p.bg_color) l.barBg = p.bg_color;
-        if (p.border_color) l.barBorderColor = p.border_color;
+        // border_color раньше не читался вовсе (экспорт писал фиксированное "#ffffff"
+        // независимо от того, что реально было в оригинале, или от того, что не было вовсе)
+        if (p.border_color) { l.barBorderColor = p.border_color; l.hasBorderColor = true; }
+        else l.hasBorderColor = false;
         if (p.show_text === 'true') l.showBarText = true;
         if (p.text) l.barText = p.text;
         if (p.text_color) l.barTextColor = p.text_color;
-        if (p.font) { const f = parseFontString(p.font); l.barFontName = f.name; l.barFontSize = f.size; }
+        if (p.font) {
+          const f = parseFontString(p.font);
+          l.barFontName = f.name; l.barFontSize = f.size;
+          l.barFontRef = p.font; // точная строка шрифта из оригинала
+        }
         if (p.bar_style) {
           const s = resolveSlicedPattern(p.bar_style, fileMap);
           if (s) { l.barStyleImg = s; cacheUrlsFromSlices(s); }
@@ -2996,7 +3066,70 @@ applyPanelVisibility();
 
 /* ---------- Project Tree (Construct-like) ---------- */
 let projectFiles = {}; // {path: blobUrl}
-let projectFonts = []; // [{name, file, url}] — .pf2 шрифты проекта
+let projectFonts = []; // [{name, file, url}] — .pf2 шрифты проекта: name = ТОЧНОЕ имя шрифта как его видит GRUB (family + weight + size), file = реальный путь .pf2 в архиве (никогда не переименовывается редактором)
+
+// Читает бинарный заголовок PF2 (формат grub-mkfont) и достаёт настоящее имя шрифта.
+// Секции идут как 4-байтный тег + 4-байтная BE-длина + данные. NAME обычно уже содержит
+// готовую строку "Familia Стиль Размер" (например "JetBrains Mono Regular 20") — то самое,
+// что нужно писать в theme.txt как item_font/title-font и т.п. Если по какой-то причине
+// NAME отсутствует/непонятен — собираем вручную из FAMI+WEIG+SLAN+PTSZ.
+async function readPf2FontName(file) {
+  try {
+    const buf = new Uint8Array(await file.slice(0, 4096).arrayBuffer()); // хедер всегда в начале файла
+    const dv = new DataView(buf.buffer);
+    const dec = new TextDecoder('utf-8');
+    const tag4 = (off) => dec.decode(buf.subarray(off, off + 4));
+    if (tag4(0) !== 'FILE' || tag4(8) !== 'PFF2') return null;
+    let off = 12;
+    const sections = {};
+    while (off + 8 <= buf.length) {
+      const tag = tag4(off);
+      const len = dv.getUint32(off + 4, false); // big-endian
+      const dataStart = off + 8;
+      if (dataStart + len > buf.length) break; // хедер обрезан нашим срезом .slice(0,4096) — секция крупнее (напр. CHIX) — прекращаем, дальше не нужно
+      if (tag === 'DATA') break; // после DATA начинаются глифы — секции с метаданными закончились
+      sections[tag] = buf.subarray(dataStart, dataStart + len);
+      off = dataStart + len;
+    }
+    const str = (tag) => sections[tag] ? dec.decode(sections[tag]).replace(/\0+$/, '') : null;
+    const name = str('NAME');
+    if (name) return name;
+    const fami = str('FAMI'); const weig = str('WEIG'); const slan = str('SLAN'); const ptsz = sections['PTSZ'];
+    if (fami) {
+      const weight = weig && /bold/i.test(weig) ? 'Bold' : 'Regular';
+      const slant = slan && /italic/i.test(slan) ? 'Italic' : '';
+      const size = ptsz ? new DataView(ptsz.buffer, ptsz.byteOffset, ptsz.byteLength).getUint16(0, false) : null;
+      return `${fami} ${weight}${slant ? ' ' + slant : ''}${size ? ' ' + size : ''}`.trim();
+    }
+    return null;
+  } catch { return null; }
+}
+// Фолбэк, когда бинарник не читается (повреждён/не .pf2) — угадываем по имени файла как раньше.
+function guessFontNameFromFileName(fname) {
+  const base = fname.replace(/\.pf2$/i, '');
+  const m = base.match(/^(.*?)[-_](bold|regular|italic|bolditalic)[-_](\d+)$/i);
+  if (m) {
+    const fam = m[1].replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const style = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
+    return `${fam} ${style} ${m[3]}`;
+  }
+  // "JetBrainsMono_20" (реальное соглашение многих тем: имя без разделителей + _РАЗМЕР, без слова стиля)
+  const m2 = base.match(/^([A-Za-z]+)[-_](\d+)$/);
+  if (m2) return `${m2[1].replace(/([a-z])([A-Z])/g, '$1 $2')} Regular ${m2[2]}`;
+  return base.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' Regular 16';
+}
+// Единая точка добавления шрифта в проект — используется и деревом проекта, и инспектором меню.
+// Всегда сохраняет ОРИГИНАЛЬНОЕ имя файла (font/<как есть>.pf2) — так экспорт совпадает 1:1
+// с тем, что реально лежит в архиве, без придуманного редактором соглашения именования.
+async function addProjectFont(file, onDone) {
+  const url = URL.createObjectURL(file);
+  let fontName = await readPf2FontName(file);
+  if (!fontName) fontName = guessFontNameFromFileName(file.name);
+  const entry = { name: fontName, file: 'font/' + file.name, url, realFile: true };
+  projectFonts.push(entry);
+  if (onDone) onDone(entry);
+  return entry;
+}
 function grubFontToFile(fontStr) {
   // "Sans Bold 28" -> "sans-bold-28.pf2" (соглашение редактора для авто-сборки шрифтов)
   if (!fontStr) return null;
@@ -3005,25 +3138,39 @@ function grubFontToFile(fontStr) {
   return `${m[1].trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${m[2].toLowerCase()}-${m[3]}.pf2`;
 }
 function projectFontFiles() {
-  // все используемые в теме имена шрифтов -> ожидаемые .pf2 файлы
+  // все реально используемые строки шрифта (item_font/title-font/font и т.п. — с приоритетом
+  // на точные *Ref строки, сохранённые при импорте) -> соответствующий .pf2 файл.
+  // Сперва ищем среди РЕАЛЬНО загруженных шрифтов (projectFonts, включая распакованные
+  // из архива при импорте) — это и есть настоящее соответствие имя-файл. Если для строки
+  // нет загруженного файла (пользователь создаёт тему с нуля и ещё не приложил .pf2) —
+  // синтезируем ожидаемое имя по старому соглашению редактора, просто как подсказку.
   const used = new Set();
   if (theme.titleVisible && theme.titleText) used.add(theme.titleFont);
   if (theme.terminalVisible && theme.terminalFont) used.add(theme.terminalFont);
   layers.forEach(l => {
     if (l.type === 'menu') {
-      used.add(`${l.fontName || 'DejaVu Sans Mono'} Regular ${l.fontSize}`);
-      used.add(`${l.fontName || 'DejaVu Sans Mono'} Bold ${l.selectedFontSize || l.fontSize}`);
+      used.add(l.itemFontRef || `${l.fontName || 'DejaVu Sans Mono'} Regular ${l.fontSize}`);
+      if (l.hasSeparateSelectedFont) {
+        used.add(l.selectedItemFontRef || `${l.fontName || 'DejaVu Sans Mono'} Bold ${l.selectedFontSize || l.fontSize}`);
+      } else if (l.selectedFontSize) {
+        used.add(`${l.fontName || 'DejaVu Sans Mono'} Bold ${l.selectedFontSize}`);
+      }
     } else if (l.type === 'label') {
-      used.add(`${l.fontName || 'DejaVu Sans Mono'} ${l.fontBold ? 'Bold' : 'Regular'} ${l.fontSize}`);
+      used.add(l.fontRef || `${l.fontName || 'DejaVu Sans Mono'} ${l.fontBold ? 'Bold' : 'Regular'} ${l.fontSize}`);
     } else if (l.type === 'progress' && l.showBarText) {
-      used.add(`${l.barFontName || l.fontName || 'DejaVu Sans Mono'} Regular ${l.barFontSize || 16}`);
+      used.add(l.barFontRef || `${l.barFontName || l.fontName || 'DejaVu Sans Mono'} Regular ${l.barFontSize || 16}`);
     }
   });
-  return [...used].filter(Boolean).map(f => ({ font: f, file: 'font/' + grubFontToFile(f) }));
+  return [...used].filter(Boolean).map(f => {
+    // реально загруженный файл для точно этой строки шрифта — используем его путь как есть
+    const real = projectFonts.find(pf => pf.name === f);
+    return { font: f, file: real ? real.file : 'font/' + grubFontToFile(f), missing: !real };
+  });
 }
 let projectTreeCollapsed = new Set();
 function bindTreeFontUpload(rootEl) {
-  // кнопка "+ Шрифт .pf2" в дереве проекта (рабочее дерево)
+  // кнопка "+ Шрифт .pf2" в дереве проекта (рабочее дерево) — читает реальное имя из .pf2,
+  // сохраняет реальный путь файла (без переименования по своему соглашению)
   const bar = document.createElement('div');
   bar.style.cssText = 'display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--border);';
   bar.innerHTML = `<button data-tree-font-add style="flex:1;padding:5px 8px;">+ Шрифт .pf2</button>
@@ -3031,19 +3178,9 @@ function bindTreeFontUpload(rootEl) {
   rootEl.appendChild(bar);
   const inp = bar.querySelector('[data-tree-font-file]');
   bar.querySelector('[data-tree-font-add]').addEventListener('click', () => inp.click());
-  inp.addEventListener('change', (ev) => {
+  inp.addEventListener('change', async (ev) => {
     const f = ev.target.files[0]; if (!f) return;
-    const url = URL.createObjectURL(f);
-    const base = f.name.replace(/\.pf2$/i, '');
-    // пытаемся угадать имя шрифта "Family Style Size" из имени файла family-style-size.pf2
-    const m = base.match(/^(.*?)[-_](bold|regular|italic|bolditalic)[-_](\d+)$/i);
-    let fontName = 'Sans', style = 'Regular', size = 22;
-    if (m) {
-      fontName = m[1].replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      style = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
-      size = parseInt(m[3], 10) || 22;
-    }
-    projectFonts.push({ name: `${fontName} ${style} ${size}`, file: 'font/' + f.name, url });
+    await addProjectFont(f);
     renderProjectTree();
   });
 }
