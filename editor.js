@@ -3275,6 +3275,21 @@ function applyPanelVisibility() {
   document.querySelector('.splitter-v[data-resize="right-wrap"]').style.display = rightAny ? 'block' : 'none';
   document.getElementById('project-tree-wrap').style.display = panelVisible['project-tree-wrap'] ? 'flex' : 'none';
   document.getElementById('layers').style.display = panelVisible.layers ? 'flex' : 'none';
+  // Если «Проект» скрыт — «Слои» должны занимать ВСЮ колонку, иначе справа
+  // остаётся недорендеренная пустота (панель была прибита к height:45%).
+  const treeEl = document.getElementById('project-tree-wrap');
+  const layersEl = document.getElementById('layers');
+  if (panelVisible['project-tree-wrap'] && panelVisible.layers) {
+    treeEl.style.flex = '1'; treeEl.style.height = 'auto';
+    layersEl.style.flex = 'none'; // высоту задаёт inline height (45%)
+  } else if (panelVisible['project-tree-wrap']) {
+    treeEl.style.flex = '1'; treeEl.style.height = 'auto';
+  } else if (panelVisible.layers) {
+    layersEl.style.flex = '1'; layersEl.style.height = 'auto';
+  }
+  // горизонтальный сплиттер имеет смысл только когда видны ОБЕ панели над/под ним
+  const hsp = document.querySelector('.splitter-h[data-resize="project-tree-wrap"]');
+  if (hsp) hsp.style.display = (panelVisible['project-tree-wrap'] && panelVisible.layers) ? 'block' : 'none';
   const tb = document.getElementById('top-toolbar');
   if (tb) tb.style.display = panelVisible['top-toolbar'] ? 'flex' : 'none';
 }
