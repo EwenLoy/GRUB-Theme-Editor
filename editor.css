@@ -32,8 +32,7 @@
   .splitter-h{height:5px;flex-shrink:0;background:var(--bg-0);cursor:row-resize;}
   .splitter-h:hover, .splitter-h.active{background:var(--accent-dim);}
   .panel-col{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;}
-  #inspector, #os-config{display:flex;flex-direction:column;}
-
+  #inspector{display:flex;flex-direction:column;}
   /* ---------- TOPBAR ---------- */
   #topbar{
     height:44px;flex-shrink:0;
@@ -185,12 +184,11 @@
   /* ---------- INSPECTOR ---------- */
   #inspector-wrap{background:var(--bg-1);border-left:1px solid var(--border);min-height:0;}
   #inspector{overflow-y:auto;min-height:60px;}
-  #os-config{overflow-y:auto;min-height:60px;}
-  #os-config .panel-header{border-bottom:1px solid var(--border);}
-  #os-config-body{padding:10px;overflow-y:auto;}
   #inspector-wrap{min-width:280px;}
   #inspector-wrap, #inspector{overflow-x:hidden;}
   #inspector-body{overflow-x:hidden;}
+  /* кнопки в шапке секции иконок ОС: сжимаются и обрезаются троеточием, не ломая строку */
+  .os-head-btn{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .field-group{padding:10px 10px 10px 12px;border-bottom:1px solid var(--border);min-width:0;overflow:hidden;}
   .field-group h4{margin:0 0 10px;font-size:11px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .field{display:flex;align-items:center;gap:8px;margin-bottom:8px;min-width:0;overflow:hidden;}

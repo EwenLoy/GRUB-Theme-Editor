@@ -271,5 +271,8 @@
   "image decode failed — файл повреждён или не является изображением": "image decode failed — file is corrupted or not an image",
   "Заполнить по меню": "Fill from menu",
   "Нет записей OS. Добавьте кнопкой «+» в заголовке.": "No OS entries. Add them with the «+» button in the header.",
-  "Нет записей OS.<br>Добавьте кнопкой «+» в заголовке.": "No OS entries.<br>Add them with the «+» button in the header."
+  "Нет записей OS.<br>Добавьте кнопкой «+» в заголовке.": "No OS entries.<br>Add them with the «+» button in the header.",
+  "Импортировать все иконки": "Import all icons",
+  "Удалить все иконки": "Delete all icons",
+  "Удалить все записи иконок OS?": "Delete all OS icon entries?"
 }

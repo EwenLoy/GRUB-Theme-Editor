@@ -1,0 +1,62 @@
+# Сгенерировано GRUB Theme Editor
+desktop-color: "#000000"
+title-text: ""
+
++ label {
+  left = 8%
+  top = 17%
+  width = 26%
+  text = "Выберите систему"
+  font = "DejaVu Sans Mono Regular 40"
+  color = "#cccccc"
+  align = "left"
+}
+
++ boot_menu {
+  left = 8%
+  top = 35%
+  width = 36%
+  height = 17%
+  item_height = 46
+  item_padding = 6
+  item_spacing = 0
+  item_icon_space = 8
+  item_font = "DejaVu Sans Mono Regular 22"
+  item_color = "#cccccc"
+  selected_item_color = "#ffffff"
+  icon_width = 32
+  icon_height = 32
+  scrollbar = false
+  visible = true
+}
+
++ progress_bar {
+  id = "__timeout__"
+  left = 8%
+  top = 83%
+  width = 47%
+  height = 28
+  fg_color = "#3d5f4d"
+  bg_color = "#2a2a2a"
+  show_text = true
+  text = "%d сек. до автозагрузки"
+  text_color = "white"
+  font = "DejaVu Sans Mono Regular 16"
+}
+
+# ---------------------------------------------------------
+# Пункты меню и их иконки (обычная / выбранная).
+# Привязка идёт через --class <имя> у каждого menuentry в grub.cfg.
+# ---------------------------------------------------------
+# 1. "Ubuntu, Linux 6.8"  →  menuentry ... --class ubuntu { ... }
+#    icon: icons/ubuntu.png
+# 2. "Windows Boot Manager"  →  menuentry ... --class windows { ... }
+#    icon: icons/windows.png
+
+# ---------------------------------------------------------
+# Примечания по 9-patch: файлы вида name_*.png нужно нарезать из
+# исходной картинки на 9 частей (nw,n,ne,w,c,e,sw,s,se) по границе
+# border, указанной для каждого слота в редакторе — предпросмотр
+# в редакторе уже показывает именно такое 9-slice масштабирование.
+# Формат координат допускает и смешанный вид: left = 25%+10
+# ---------------------------------------------------------

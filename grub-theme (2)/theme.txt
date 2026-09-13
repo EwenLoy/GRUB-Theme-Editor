@@ -1,0 +1,200 @@
+desktop-image-scale-method: "stretch"
+# Сгенерировано GRUB Theme Editor
+desktop-image: "background.png"
+desktop-image-scale-method: "stretch"
+desktop-image-h-align: "center"
+desktop-image-v-align: "center"
+desktop-color: "#1E1E2E"
+title-text: ""
+terminal-box: "terminal_box_*.png"
+terminal-font: "Cascadia Code Regular 18"
+terminal-border: "0"
+terminal-left: "0%"
+terminal-top: "0%"
+terminal-width: "100%"
+terminal-height: "100%"
+
++ boot_menu {
+  left = 50%
+  top = 20%
+  width = 36%
+  height = 62%
+  item_height = 42
+  item_padding = 5
+  item_spacing = 10
+  item_icon_space = 20
+  item_font = "JetBrains Mono Regular 20"
+  item_color = "#FFFFFF"
+  selected_item_color = "#FFFFFF"
+  icon_width = 32
+  icon_height = 32
+  menu_pixmap_style = "assets/menu-1/menu_*.png"
+  selected_item_pixmap_style = "assets/menu-1/select_*.png"
+  scrollbar = false
+  visible = true
+}
+
++ progress_bar {
+  id = "__timeout__"
+  left = 0%
+  top = 97%
+  width = 100%
+  height = 30
+  fg_color = "#b63525"
+  bg_color = "#181825"
+  highlight_style = "assets/progress-2/highlight_*.png"
+  highlight_overlay = false
+}
+
+# ---------------------------------------------------------
+# Пункты меню и их иконки (обычная / выбранная).
+# Привязка идёт через --class <имя> у каждого menuentry в grub.cfg.
+# ---------------------------------------------------------
+# 1. "4MLinux"  →  menuentry ... --class 4MLinux { ... }
+#    icon: icons/4MLinux.png
+# 2. "AlpineLinux"  →  menuentry ... --class AlpineLinux { ... }
+#    icon: icons/AlpineLinux.png
+# 3. "Manjaro.i686"  →  menuentry ... --class Manjaro.i686 { ... }
+#    icon: icons/Manjaro.i686.png
+# 4. "Manjaro.x86_64"  →  menuentry ... --class Manjaro.x86_64 { ... }
+#    icon: icons/Manjaro.x86_64.png
+# 5. "SystemRescueCD"  →  menuentry ... --class SystemRescueCD { ... }
+#    icon: icons/SystemRescueCD.png
+# 6. "android"  →  menuentry ... --class android { ... }
+#    icon: icons/android.png
+# 7. "anonymous"  →  menuentry ... --class anonymous { ... }
+#    icon: icons/anonymous.png
+# 8. "antergos"  →  menuentry ... --class antergos { ... }
+#    icon: icons/antergos.png
+# 9. "arch"  →  menuentry ... --class arch { ... }
+#    icon: icons/arch.png
+# 10. "archlinux"  →  menuentry ... --class archlinux { ... }
+#    icon: icons/archlinux.png
+# 11. "arcolinux"  →  menuentry ... --class arcolinux { ... }
+#    icon: icons/arcolinux.png
+# 12. "artix"  →  menuentry ... --class artix { ... }
+#    icon: icons/artix.png
+# 13. "cachyos"  →  menuentry ... --class cachyos { ... }
+#    icon: icons/cachyos.png
+# 14. "chakra"  →  menuentry ... --class chakra { ... }
+#    icon: icons/chakra.png
+# 15. "debian"  →  menuentry ... --class debian { ... }
+#    icon: icons/debian.png
+# 16. "deepin"  →  menuentry ... --class deepin { ... }
+#    icon: icons/deepin.png
+# 17. "devuan"  →  menuentry ... --class devuan { ... }
+#    icon: icons/devuan.png
+# 18. "driver"  →  menuentry ... --class driver { ... }
+#    icon: icons/driver.png
+# 19. "edit"  →  menuentry ... --class edit { ... }
+#    icon: icons/edit.png
+# 20. "efi"  →  menuentry ... --class efi { ... }
+#    icon: icons/efi.png
+# 21. "elementary"  →  menuentry ... --class elementary { ... }
+#    icon: icons/elementary.png
+# 22. "endeavouros"  →  menuentry ... --class endeavouros { ... }
+#    icon: icons/endeavouros.png
+# 23. "fedora"  →  menuentry ... --class fedora { ... }
+#    icon: icons/fedora.png
+# 24. "find.efi"  →  menuentry ... --class find.efi { ... }
+#    icon: icons/find.efi.png
+# 25. "find.none"  →  menuentry ... --class find.none { ... }
+#    icon: icons/find.none.png
+# 26. "freebsd"  →  menuentry ... --class freebsd { ... }
+#    icon: icons/freebsd.png
+# 27. "gentoo"  →  menuentry ... --class gentoo { ... }
+#    icon: icons/gentoo.png
+# 28. "gnu-linux"  →  menuentry ... --class gnu-linux { ... }
+#    icon: icons/gnu-linux.png
+# 29. "gpart"  →  menuentry ... --class gpart { ... }
+#    icon: icons/gpart.png
+# 30. "haiku"  →  menuentry ... --class haiku { ... }
+#    icon: icons/haiku.png
+# 31. "help"  →  menuentry ... --class help { ... }
+#    icon: icons/help.png
+# 32. "kali"  →  menuentry ... --class kali { ... }
+#    icon: icons/kali.png
+# 33. "kaos"  →  menuentry ... --class kaos { ... }
+#    icon: icons/kaos.png
+# 34. "kbd"  →  menuentry ... --class kbd { ... }
+#    icon: icons/kbd.png
+# 35. "kernel"  →  menuentry ... --class kernel { ... }
+#    icon: icons/kernel.png
+# 36. "korora"  →  menuentry ... --class korora { ... }
+#    icon: icons/korora.png
+# 37. "kubuntu"  →  menuentry ... --class kubuntu { ... }
+#    icon: icons/kubuntu.png
+# 38. "lang"  →  menuentry ... --class lang { ... }
+#    icon: icons/lang.png
+# 39. "lfs"  →  menuentry ... --class lfs { ... }
+#    icon: icons/lfs.png
+# 40. "linux"  →  menuentry ... --class linux { ... }
+#    icon: icons/linux.png
+# 41. "linuxmint"  →  menuentry ... --class linuxmint { ... }
+#    icon: icons/linuxmint.png
+# 42. "lubuntu"  →  menuentry ... --class lubuntu { ... }
+#    icon: icons/lubuntu.png
+# 43. "macosx"  →  menuentry ... --class macosx { ... }
+#    icon: icons/macosx.png
+# 44. "mageia"  →  menuentry ... --class mageia { ... }
+#    icon: icons/mageia.png
+# 45. "manjaro"  →  menuentry ... --class manjaro { ... }
+#    icon: icons/manjaro.png
+# 46. "manjarolinux"  →  menuentry ... --class manjarolinux { ... }
+#    icon: icons/manjarolinux.png
+# 47. "memtest"  →  menuentry ... --class memtest { ... }
+#    icon: icons/memtest.png
+# 48. "mx-linux"  →  menuentry ... --class mx-linux { ... }
+#    icon: icons/mx-linux.png
+# 49. "neon"  →  menuentry ... --class neon { ... }
+#    icon: icons/neon.png
+# 50. "nixos"  →  menuentry ... --class nixos { ... }
+#    icon: icons/nixos.png
+# 51. "opensuse"  →  menuentry ... --class opensuse { ... }
+#    icon: icons/opensuse.png
+# 52. "parrot"  →  menuentry ... --class parrot { ... }
+#    icon: icons/parrot.png
+# 53. "pop-os"  →  menuentry ... --class pop-os { ... }
+#    icon: icons/pop-os.png
+# 54. "pop"  →  menuentry ... --class pop { ... }
+#    icon: icons/pop.png
+# 55. "recovery"  →  menuentry ... --class recovery { ... }
+#    icon: icons/recovery.png
+# 56. "regolith"  →  menuentry ... --class regolith { ... }
+#    icon: icons/regolith.png
+# 57. "restart"  →  menuentry ... --class restart { ... }
+#    icon: icons/restart.png
+# 58. "shutdown"  →  menuentry ... --class shutdown { ... }
+#    icon: icons/shutdown.png
+# 59. "siduction"  →  menuentry ... --class siduction { ... }
+#    icon: icons/siduction.png
+# 60. "solus"  →  menuentry ... --class solus { ... }
+#    icon: icons/solus.png
+# 61. "steamos"  →  menuentry ... --class steamos { ... }
+#    icon: icons/steamos.png
+# 62. "type"  →  menuentry ... --class type { ... }
+#    icon: icons/type.png
+# 63. "tz"  →  menuentry ... --class tz { ... }
+#    icon: icons/tz.png
+# 64. "ubuntu"  →  menuentry ... --class ubuntu { ... }
+#    icon: icons/ubuntu.png
+# 65. "unset"  →  menuentry ... --class unset { ... }
+#    icon: icons/unset.png
+# 66. "void"  →  menuentry ... --class void { ... }
+#    icon: icons/void.png
+# 67. "windows"  →  menuentry ... --class windows { ... }
+#    icon: icons/windows.png
+# 68. "windows11"  →  menuentry ... --class windows11 { ... }
+#    icon: icons/windows11.png
+# 69. "xubuntu"  →  menuentry ... --class xubuntu { ... }
+#    icon: icons/xubuntu.png
+# 70. "zorin"  →  menuentry ... --class zorin { ... }
+#    icon: icons/zorin.png
+
+# ---------------------------------------------------------
+# Примечания по 9-patch: файлы вида name_*.png нужно нарезать из
+# исходной картинки на 9 частей (nw,n,ne,w,c,e,sw,s,se) по границе
+# border, указанной для каждого слота в редакторе — предпросмотр
+# в редакторе уже показывает именно такое 9-slice масштабирование.
+# Формат координат допускает и смешанный вид: left = 25%+10
+# ---------------------------------------------------------

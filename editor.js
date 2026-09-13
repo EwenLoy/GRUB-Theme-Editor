@@ -106,12 +106,12 @@ function makeLayer(type, overrides = {}) {
     highlightStyleImg: null,   // highlight_style (заливка)
     highlightStyleBorder: 8,
     highlightOverlay: false,
-    // circular_progress
+    // circular_progress — дефолты GRUB: num_ticks=64, start_angle=-64 (= 12 часов), тики ПОЯВЛЯЮТСЯ
     centerBitmap: null,
     tickBitmap: null,
-    numTicks: 20,
-    startAngle: -90,
-    ticksDisappear: true,
+    numTicks: 64,
+    startAngle: -64,
+    ticksDisappear: false,
   };
   const l = Object.assign(base, overrides);
   l.name = defaultName(l);
@@ -738,34 +738,41 @@ function drawLayerShape(c, l, sc) {
   }
 
   if (l.type === 'circular') {
-    const cx = x + w / 2, cy = y + h / 2, r = Math.min(w, h) / 2 - 4 * sc;
-    const startRad = (l.startAngle || 0) * Math.PI / 180;
-    const numTicks = Math.max(1, l.numTicks || 20);
+    /* Точный рендер по GRUB gui_circular_progress.c, circprog_paint():
+       center blit: (width-center_width)/2, (height-center_height)/2 — НАТУРАЛЬНЫЙ размер
+       ticks_shown = ticks_disappear ? end - value : value - start
+       step = 256/num_ticks (256 единиц = полный круг), старт с start_angle (по умолчанию -64 = 12 часов)
+       x = width/2  - tick_w/2 + (width/2  - tick_w/2) * cos(a); y = height/2 - tick_h/2 + (height/2 - tick_h/2) * sin(a) */
+    const numTicks = Math.max(1, l.numTicks || 64);
+    const startUnits = (typeof l.startAngle === 'number') ? l.startAngle : -64; // единицы GRUB: 256 = круг
+    const startRad = startUnits * Math.PI * 2 / 256;
     const tickImg = l.tickBitmap && imgCache[l.tickBitmap];
-    const activeTicks = Math.round(numTicks * 0.55); // демо-значение прогресса для превью
+    // сколько тиков видно: статичный макет — 60%; в превью приходит _previewShown
+    const frac = (typeof l._previewShown === 'number') ? l._previewShown : 0.6;
+    const shown = Math.max(0, Math.min(numTicks, Math.round(numTicks * frac)));
 
-    if (tickImg && tickImg.complete) {
-      // тики рисуются картинками по окружности (tick_bitmap)
-      for (let i = 0; i < numTicks; i++) {
-        const on = l.ticksDisappear ? i >= activeTicks : i < activeTicks;
-        if (!on) continue;
-        const ang = startRad + (i / numTicks) * Math.PI * 2;
-        const tw = Math.max(4, r * 0.16), th = tw;
-        const tx = cx + Math.cos(ang) * r - tw / 2;
-        const ty = cy + Math.sin(ang) * r - th / 2;
-        c.drawImage(tickImg, tx, ty, tw, th);
+    if (tickImg && tickImg.complete && tickImg.naturalWidth) {
+      // тики рисуются картинками ПО НАТУРАЛЬНОМУ размеру (GRUB не масштабирует)
+      const tw = tickImg.naturalWidth, th = tickImg.naturalHeight;
+      const rx = Math.max(1, w / 2 - tw / 2), ry = Math.max(1, h / 2 - th / 2);
+      for (let i = 0; i < shown; i++) {
+        const a = startRad + (i / numTicks) * Math.PI * 2; // step = 2π/numTicks
+        c.drawImage(tickImg,
+          x + w / 2 - tw / 2 + rx * Math.cos(a),
+          y + h / 2 - th / 2 + ry * Math.sin(a));
       }
     }
 
     const centerImg = l.centerBitmap && imgCache[l.centerBitmap];
-    if (centerImg && centerImg.complete) {
-      const cw = r * 1.3, ch = r * 1.3;
-      c.drawImage(centerImg, cx - cw / 2, cy - ch / 2, cw, ch);
+    if (centerImg && centerImg.complete && centerImg.naturalWidth) {
+      // центр — натуральный размер, по центру компонента (как blit в GRUB)
+      c.drawImage(centerImg, x + (w - centerImg.naturalWidth) / 2, y + (h - centerImg.naturalHeight) / 2);
     }
     // ВАЖНО: в реальном GRUB circular_progress рисуется ТОЛЬКО через center_bitmap/tick_bitmap.
     // Без них компонент невидим и текста в центре не бывает — это не progress_bar.
     // Пунктирная плашка ниже — только editor-guide, чтобы было видно место компонента.
     if (!tickImg && !centerImg) {
+      const cx = x + w / 2, cy = y + h / 2, r = Math.min(w, h) / 2;
       c.strokeStyle = 'rgba(255,255,255,0.25)';
       c.setLineDash([4, 3]);
       c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke();
@@ -892,15 +899,34 @@ function loadDefaultIconDataUrl(cls) {
   });
 }
 
+// пресет = ВСЯ встроенная библиотека иконок: слева в конфигурации сразу
+// видны все default-icons/*.png, и всё настроенное здесь уходит в билд
 function defaultOsEntries() {
-  return [
-    { id: 1, name: 'Ubuntu, Linux 6.8', osClass: 'ubuntu', normalImg: null, selectedImg: null },
-    { id: 2, name: 'Windows Boot Manager', osClass: 'windows', normalImg: null, selectedImg: null }
-  ];
+  return DEFAULT_ICON_CLASSES.map((cls, i) => ({
+    id: i + 1, name: cls, osClass: cls, normalImg: null, selectedImg: null
+  }));
 }
 
 let osEntries = defaultOsEntries();
-let osIdCounter = 3;
+let osIdCounter = defaultOsEntries().length + 1;
+
+// кнопка «Импортировать все иконки»: добавляет весь пресет default-icons/
+// (классы, которых ещё нет в списке — дубликаты не плодит)
+function importAllPresetIcons() {
+  const have = new Set(osEntries.map(e => e.osClass));
+  const missing = DEFAULT_ICON_CLASSES.filter(c => !have.has(c));
+  if (!missing.length) return;
+  missing.forEach(cls => osEntries.push({ id: osIdCounter++, name: cls, osClass: cls, normalImg: null, selectedImg: null }));
+  renderOsConfig();
+  if (!getLayer(selectedId)) renderInspector(); else drawEditor();
+}
+// кнопка «Удалить все иконки»
+function clearAllOsEntries() {
+  if (!osEntries.length || !confirm('Удалить все записи иконок OS?')) return;
+  osEntries = [];
+  renderOsConfig();
+  if (!getLayer(selectedId)) renderInspector(); else drawEditor();
+}
 
 // сколько строк показывает меню загрузки (по всем menu-слоям)
 function getMenuRowsCount() {
@@ -908,105 +934,44 @@ function getMenuRowsCount() {
   layers.filter(l => l.type === 'menu').forEach(l => { n = Math.max(n, l.itemCount || 0); });
   return n;
 }
-// создать записи для всех строк меню, у которых ещё нет своей записи:
-// каждый пункт меню получает иконку по своему --class, поэтому записей
-// должно быть не меньше, чем строк в меню. Класс 'unknown' -> иконка
-// unknown.png из библиотеки (как поступает сам GRUB для незнакомых классов).
-function autofillOsEntries() {
-  const rows = getMenuRowsCount();
-  for (let i = osEntries.length; i < rows; i++) {
-    osEntries.push({ id: osIdCounter++, name: 'Пункт ' + (i + 1), osClass: 'unknown', normalImg: null, selectedImg: null });
-  }
-  renderOsConfig();
-  if (!getLayer(selectedId)) renderInspector(); else drawEditor();
-}
-// подсказка о несовпадении числа строк меню и записей (+ кнопка автозаполнения)
-function osConfigAutofillHint() {
-  const rows = getMenuRowsCount();
-  if (rows <= osEntries.length) return '';
-  return '<div class="hint-small" style="margin:0 0 8px;">⚠ Строк в меню: <b>' + rows + '</b>, записей: <b>' + osEntries.length
-    + '</b>. Каждому пункту нужна своя запись — иначе GRUB нарисует пункт без иконки. '
-    + '<button data-os-autofill style="padding:2px 8px;">Заполнить по меню</button></div>';
-}
 
 function addOsEntry() {
   osEntries.push({ id: osIdCounter++, name: 'Новая запись', osClass: 'os', normalImg: null, selectedImg: null });
   renderOsConfig();
-
+  drawEditor();
+  if (!getLayer(selectedId)) renderInspectorOsSection();
 }
 function removeOsEntry(id) {
   osEntries = osEntries.filter(e => e.id !== id);
   renderOsConfig();
   drawEditor();
+  if (!getLayer(selectedId)) renderInspectorOsSection();
 }
 
 function ensureOsConfigBtn(){}
-function renderOsConfig() {
-  const wrap = document.getElementById('os-config');
-  const emptySel = !getLayer(selectedId);
-  // когда ничего не выбрано — иконки в inspector, нижний блок скрываем; иначе показываем нижний если флаг включен
-  if(wrap) wrap.style.display = emptySel ? 'none' : (panelVisible['os-config'] ? '' : 'none');
-  const body = document.getElementById('os-config-body');
-  if (!body) return;
-  body.innerHTML = '';
-  if (osEntries.length === 0) {
-    body.innerHTML = osConfigAutofillHint() + '<div class="empty-msg">Нет записей OS.<br>Добавьте кнопкой «+» в заголовке.</div>';
-    bindOsConfigEvents(body);
-    return;
-  }
-  body.insertAdjacentHTML('beforeend', osConfigAutofillHint());
-  osEntries.forEach(e => {
-    const div = document.createElement('div');
-    div.className = 'os-entry';
-    div.innerHTML = `
-      <div class="os-entry-head">
-        <input type="text" value="${escapeHtml(e.name)}" data-role="name">
-        <span class="os-del" data-role="del">✕</span>
-      </div>
-      <div class="field" style="padding:0 0 6px;">
-        <label style="font-size:10.5px;color:var(--text-2);">Класс (--class в menuentry)</label>
-        <input type="text" value="${escapeHtml(e.osClass || '')}" data-role="class" placeholder="ubuntu, windows...">
-      </div>
-      <div class="slot-row">
-        <div class="slot">
-          <div class="slot-label">Иконка (icons/${escapeHtml(e.osClass || 'class')}.png)</div>
-          <div class="slot-box" data-role="normal-box">${e.normalImg ? `<img src="${e.normalImg}">` : '＋'}</div>
-          <input type="file" accept="image/*" data-role="normal-file">
-        </div>
-      </div>
-      <div class="hint-small" style="margin-top:4px;">GRUB подбирает иконку по <b>классу</b> пункта меню (<code>menuentry ... --class ${escapeHtml(e.osClass||'ubuntu')}</code>), а не по порядку. У пункта только одна иконка — отдельной картинки для «выбран» в GRUB нет.</div>
-    `;
-    const nameInp = div.querySelector('[data-role="name"]');
-    nameInp.addEventListener('input', (ev) => { e.name = ev.target.value; drawEditor(); });
-    nameInp.addEventListener('blur', () => { renderAll(); });
-    div.querySelector('[data-role="del"]').addEventListener('click', () => removeOsEntry(e.id));
-
-    const classInp = div.querySelector('[data-role="class"]');
-    classInp.addEventListener('input', (ev) => { e.osClass = ev.target.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,''); });
-    classInp.addEventListener('blur', () => renderAll());
-
-    const normalFile = div.querySelector('[data-role="normal-file"]');
-    div.querySelector('[data-role="normal-box"]').addEventListener('click', () => normalFile.click());
-    normalFile.addEventListener('change', (ev) => {
-      const f = ev.target.files[0]; if (!f) return;
-      handlePickedImageFile(f, (url) => {
-        e.normalImg = url;
-        e.selectedImg = url; // в GRUB одна иконка на класс, отдельной "выбранной" нет
-        cacheImage(url);
-        renderOsConfig();
-        drawEditor();
-      });
-    });
-
-    body.appendChild(div);
-  });
-  body.querySelectorAll('[data-os-autofill]').forEach(btn => btn.addEventListener('click', autofillOsEntries));
-}
+// легаси: отдельная нижняя панель os-config удалена — иконки ОС живут
+// только в инспекторе (renderInspectorOsSection). Заглушка оставлена,
+// т.к. renderOsConfig() вызывается из старых мест.
+function renderOsConfig() {}
 
 // btn создаётся динамически в ensureOsConfigBtn
 
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// точечное обновление слота иконки одной записи (лейбл + картинка) без
+// пересборки всей панели — чтобы не терять фокус ввода имени/класса
+function refreshOsEntryView(div, e) {
+  if (!div) return;
+  const label = div.querySelector('.slot-label');
+  if (label) label.textContent = 'Иконка (icons/' + (e.osClass || 'class') + '.png)';
+  const box = div.querySelector('.slot-box');
+  if (box) box.innerHTML = e.normalImg
+    ? `<img src="${e.normalImg}">`
+    : (defaultIconClassFor(e)
+        ? `<img src="${getDefaultIconUrl(defaultIconClassFor(e))}" style="opacity:.85;" title="встроенная иконка (default-icons/${escapeHtml(defaultIconClassFor(e))}.png) — клик, чтобы заменить своей">`
+        : '＋');
 }
 
 /* ============================================================
@@ -1341,8 +1306,8 @@ function layerIcon(type) {
    ============================================================ */
 
 function buildOsConfigHtml() {
-  if (osEntries.length === 0) return osConfigAutofillHint() + '<div class="empty-msg">Нет записей OS. Добавьте кнопкой «+» в заголовке.</div>';
-  return osConfigAutofillHint() + osEntries.map(e => `
+  if (osEntries.length === 0) return '<div class="empty-msg">Нет записей OS. Добавьте кнопкой «+» в заголовке.</div>';
+  return osEntries.map(e => `
       <div class="os-entry" data-os-id="${e.id}">
         <div class="os-entry-head">
           <input type="text" value="${escapeHtml(e.name)}" data-os-name="${e.id}">
@@ -1366,12 +1331,16 @@ function buildOsConfigHtml() {
     `).join('');
 }
 function bindOsConfigEvents(root) {
-  root.querySelectorAll('[data-os-autofill]').forEach(btn => btn.addEventListener('click', autofillOsEntries));
+  root.querySelectorAll('[data-os-import-all]').forEach(btn => btn.addEventListener('click', importAllPresetIcons));
+  root.querySelectorAll('[data-os-clear-all]').forEach(btn => btn.addEventListener('click', clearAllOsEntries));
   root.querySelectorAll('[data-os-name]').forEach(inp => {
     const id = Number(inp.getAttribute('data-os-name'));
     const e = osEntries.find(x => x.id === id);
     if (!e) return;
-    inp.addEventListener('input', () => { e.name = inp.value; drawEditor(); });
+    inp.addEventListener('input', () => {
+      e.name = inp.value; drawEditor();
+      refreshOsEntryView(inp.closest('.os-entry'), e);
+    });
     inp.addEventListener('blur', () => renderAll());
   });
   root.querySelectorAll('[data-os-del]').forEach(btn => {
@@ -1381,7 +1350,11 @@ function bindOsConfigEvents(root) {
     const id = Number(inp.getAttribute('data-os-class'));
     const e = osEntries.find(x => x.id === id);
     if (!e) return;
-    inp.addEventListener('input', () => { e.osClass = inp.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,''); });
+    inp.addEventListener('input', () => {
+      e.osClass = inp.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,'');
+      // живо обновляем слот иконки, не перестраивая панель (иначе слетает фокус ввода)
+      refreshOsEntryView(inp.closest('.os-entry'), e);
+    });
     inp.addEventListener('blur', () => renderAll());
   });
   // клик по иконке — скрытый file input
@@ -1391,22 +1364,45 @@ function bindOsConfigEvents(root) {
       const e = osEntries.find(x => x.id === id);
       if (!e) return;
       const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*';
-      inp.onchange = ev => { const f=ev.target.files[0]; if(!f) return; handlePickedImageFile(f, (url) => { e.normalImg=url; e.selectedImg=url; cacheImage(url); renderAll(); renderOsConfig(); if(!getLayer(selectedId)) renderInspector(); }); };
+      inp.onchange = ev => { const f=ev.target.files[0]; if(!f) return; handlePickedImageFile(f, (url) => { e.normalImg=url; e.selectedImg=url; cacheImage(url); renderAll(); renderOsConfig(); if(!getLayer(selectedId)) renderInspectorOsSection(); }); };
       inp.click();
     });
   });
 }
+// HTML секции «иконки ОС» внутри инспектора (когда слой не выбран)
+function inspectorOsSectionHtml() {
+  return '<div class="field-group" style="border-bottom:none;" id="inspector-os-group">'
+    + '<h4>Конфигурация проекта (иконки ОС)</h4>'
+    + '<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px;">'
+    + '<button data-os-import-all class="os-head-btn" style="padding:3px 10px;">Импортировать все иконки</button>'
+    + '<button data-os-clear-all class="os-head-btn" style="padding:3px 10px;">Удалить все иконки</button>'
+    + '<button id="inspector-add-os" class="os-head-btn" style="padding:3px 10px;">+ Добавить пункт</button>'
+    + '</div>'
+    + buildOsConfigHtml() + '</div>';
+}
+function bindInspectorOsSection() {
+  const grp = document.getElementById('inspector-os-group');
+  if (!grp) return;
+  bindOsConfigEvents(grp);
+  grp.querySelector('#inspector-add-os')?.addEventListener('click', addOsEntry);
+}
+// перерисовывает ТОЛЬКО секцию иконок ОС в инспекторе, не трогая остальное
+// содержимое панели — нужно когда фокус внутри инспектора (renderAll
+// пропускает полный renderInspector, чтобы не слетал ввод текста)
+function renderInspectorOsSection() {
+  const old = document.getElementById('inspector-os-group');
+  if (!old) { renderInspector(); return; }
+  old.outerHTML = inspectorOsSectionHtml();
+  bindInspectorOsSection();
+}
+
 function renderInspector() {
   const el = document.getElementById('inspector-body');
   const l = getLayer(selectedId);
   if (!l) {
     // когда ничего не выбрано — показываем иконки ОС прямо в панели свойств, внизу панели не дублируем
-    el.innerHTML = '<div class="field-group" style="border-bottom:none;">'
-      + '<h4>Конфигурация проекта (иконки ОС)</h4>'
-      + '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button id="inspector-add-os" style="padding:3px 10px;">+ Добавить пункт</button></div>'
-      + buildOsConfigHtml() + '</div>';
-    bindOsConfigEvents(el);
-    document.getElementById('inspector-add-os')?.addEventListener('click', ()=>{ addOsEntry(); renderInspector(); renderOsConfig(); });
+    el.innerHTML = inspectorOsSectionHtml();
+    bindInspectorOsSection();
     return;
   }
 
@@ -1540,7 +1536,7 @@ function renderInspector() {
         ${!l.useTimeoutId ? '<div class="hint-small">⚠ Без id="__timeout__" круг статичен: при ticks_disappear в GRUB будет пустым. Включите для обратного отсчёта.</div>' : '<div class="hint-small">На холсте — статичный макет. Реальную анимацию отсчёта смотрите кнопкой «▶ Превью» вверху.</div>'}
         <div class="hint-small">⚠ В GRUB у circular_progress <b>нет текста и нет заливки цветом</b> — компонент существует только через картинки center_bitmap/tick_bitmap ниже. Без них в реальном GRUB он будет полностью невидим.</div>
         <div class="field"><label>num_ticks</label><input type="number" data-k="numTicks" value="${l.numTicks}"></div>
-        <div class="field"><label>start_angle (°)</label><input type="number" data-k="startAngle" value="${l.startAngle}"></div>
+        <div class="field"><label>start_angle (GRUB: 256 = круг, -64 = верх)</label><input type="number" data-k="startAngle" value="${l.startAngle}"></div>
         <div class="field"><label>ticks_disappear</label><input type="checkbox" data-k="ticksDisappear" data-type="checkbox" ${l.ticksDisappear ? 'checked' : ''}></div>
       </div>
       <div class="field-group">
@@ -3494,15 +3490,12 @@ const PANELS = [
   { id: 'top-toolbar',         label: 'Панель вставки' },
 ];
 
-const panelVisible = { 'inspector-wrap': true, 'canvas-wrap': true, 'project-tree-wrap': false, layers: true, 'os-config': true, 'right-wrap': true, 'top-toolbar': false };
+const panelVisible = { 'inspector-wrap': true, 'canvas-wrap': true, 'project-tree-wrap': false, layers: true, 'right-wrap': true, 'top-toolbar': false };
 function applyPanelVisibility() {
   const wrap = document.getElementById('inspector-wrap');
   if(wrap) wrap.style.display = panelVisible['inspector-wrap'] ? 'flex' : 'none';
   const sv = document.querySelector('.splitter-v[data-resize="inspector-wrap"]');
   if(sv) sv.style.display = panelVisible['inspector-wrap'] ? 'block' : 'none';
-  const osc = document.getElementById('os-config');
-  // os-config виден только если и левая колонка открыта, и сам флаг true
-  if(osc) osc.style.display = (panelVisible['inspector-wrap'] && panelVisible['os-config']) ? 'flex' : 'none';
   const rightAny = panelVisible['project-tree-wrap'] || panelVisible.layers;
   document.getElementById('right-wrap').style.display = rightAny ? 'flex' : 'none';
   document.querySelector('.splitter-v[data-resize="right-wrap"]').style.display = rightAny ? 'block' : 'none';
@@ -3580,11 +3573,9 @@ document.querySelectorAll('.splitter-v, .splitter-h').forEach(sp => {
     splitStart.y = e.clientY;
     const targetId = sp.getAttribute('data-resize');
     const target = document.getElementById(targetId);
+    if (!target) return;
     const rect = target.getBoundingClientRect();
     splitStart.sizeA = sp.classList.contains('splitter-v') ? rect.width : rect.height;
-    if (sp.getAttribute('data-resize') === 'os-config') {
-      splitStart._inspectorH = document.getElementById('inspector').getBoundingClientRect().height;
-    }
     e.preventDefault();
   });
 });
@@ -3593,6 +3584,7 @@ window.addEventListener('mousemove', (e) => {
   if (!activeSplitter) return;
   const targetId = activeSplitter.getAttribute('data-resize');
   const target = document.getElementById(targetId);
+  if (!target) return;
   if (activeSplitter.classList.contains('splitter-v')) {
     const dx = e.clientX - splitStart.x;
     const isLeftPanel = targetId === 'inspector-wrap';
@@ -3602,13 +3594,7 @@ window.addEventListener('mousemove', (e) => {
     target.style.flex = 'none';
   } else {
     const dy = e.clientY - splitStart.y;
-    // сплиттер между inspector (верх) и os-config (низ): data-resize привязан к нижнему
-    // тянешь вниз -> inspector растёт, тянешь вверх -> уменьшается. Сейчас было инвертировано (рос os-config при тяге вниз)
-    if (targetId === 'os-config') {
-      const newH = Math.max(80, splitStart.sizeA - dy);
-      target.style.height = newH + 'px';
-      target.style.flex = 'none';
-    } else if (targetId === 'layers') {
+    if (targetId === 'layers') {
       // инверт: тянем границу ВВЕРХ — layers должен расти, тянем вниз — уменьшаться
       // dy отрицательный при тяге вверх, значит вычитаем
       const newH = Math.max(80, splitStart.sizeA - dy);
@@ -3870,6 +3856,10 @@ function renderAll() {
   const ae = document.activeElement;
   const insideInspector = ae && ae.closest && ae.closest('#inspector-body');
   if (!insideInspector) renderInspector();
+  else if (!getLayer(selectedId)) renderInspectorOsSection(); // секция иконок ОС зависит от osEntries — обновляем точечно
+  // при выбранном слое список иконок ОС живёт в нижней панели — обновляем её тоже
+  // (кроме случая когда фокус внутри неё — не теряем ввод)
+  applyPanelVisibility();
   updateMenuAddDisabled();
 }
 function updateMenuAddDisabled(){
@@ -3999,16 +3989,20 @@ function openPreview() {
         l.text = keep;
       } else if (l.type === 'progress' && l.useTimeoutId) {
         const keep = l.barText;
-        l._previewFrac = remainSecs / totalSecs;
+        // GRUB gui_progress_bar.c: barwidth = width * (value - start) / (end - start).
+        // value — ПРОШЕДШЕЕ время, т.е. заливка РАСТЁТ от 0 до полной ширины.
+        l._previewFrac = 1 - remainSecs / totalSecs;
         if (l.showBarText) l.barText = substTimeoutVars(keep, remainSecs);
         drawLayerShape(pctx, l, 1);
         l._previewFrac = null;
         l.barText = keep;
       } else if (l.type === 'circular' && l.useTimeoutId) {
+        // GRUB gui_circular_progress.c: ticks_shown = ticks_disappear ? end-value : value-start.
+        // value — прошедшее время: по умолчанию тики ПОЯВЛЯЮТСЯ, при ticks_disappear — исчезают.
         const keepTicks = l.numTicks;
-        l.numTicks = Math.max(1, Math.round(keepTicks * (remainSecs / totalSecs)));
+        l._previewShown = l.ticksDisappear ? (remainSecs / totalSecs) : (1 - remainSecs / totalSecs);
         drawLayerShape(pctx, l, 1);
-        l.numTicks = keepTicks;
+        l._previewShown = null;
       } else {
         drawLayerShape(pctx, l, 1);
       }
