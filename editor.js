@@ -2502,6 +2502,17 @@ async function buildExportBlobs() {
     }
     if (src) blobs[`icons/${cls}.png`] = src;
   }
+  // ВАЖНО: кладём в экспорт ВСЮ встроенную библиотеку иконок, а не только иконки
+  // текущих ос-записей. Реальный grub.cfg на машине генерирует menuentry с
+  // десятками разных --class (arch, fedora, memtest, recovery, ...), и GRUB
+  // молча рисует пункт «без иконки», если icons/<class>.png в теме нет.
+  // Библиотека встроена в редактор (default-icons-data.js) и весит десятки КБ —
+  // включаем её целиком. Иконки, заданные пользователем вручную (выше), не
+  // перетираем: приоритет у пользовательских.
+  for (const dcls of DEFAULT_ICON_CLASSES) {
+    const durl = await loadDefaultIconDataUrl(dcls);
+    if (durl && !blobs[`icons/${dcls}.png`]) blobs[`icons/${dcls}.png`] = durl;
+  }
   // шрифты .pf2: то, что пришло с импортом (projectFiles) + загруженное пользователем (projectFonts,
   // включая шрифты, автоматически зарегистрированные при импорте архива под их реальными путями)
   Object.keys(projectFiles).forEach(k => {
