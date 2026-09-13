@@ -2303,6 +2303,28 @@ function collectSlicedOrSingle(map, val, prefix){
     for(const [suf,url] of Object.entries(val)) if(suf!=='__slices' && typeof url==='string') map[`${prefix}_${suf}.png`]=url;
   }
 }
+// Догрузка файла в байты для сборки ZIP. fetch() на file:// в Chrome запрещён
+// (opaque origin), поэтому для ВСЕХ картинок есть фолбэк: <img> + canvas ->
+// toBlob -> arrayBuffer. Это актуальный обходной путь (data:/blob: URL тоже
+// проходят через canvas без taint, т.к.Origin совпадает).
+function loadImageBytesViaCanvas(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+        cv.getContext('2d').drawImage(img, 0, 0);
+        cv.toBlob(b => {
+          if (!b) { reject(new Error('toBlob failed')); return; }
+          b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))).catch(reject);
+        }, 'image/png');
+      } catch (err) { reject(err); }
+    };
+    img.onerror = () => reject(new Error('img load failed: ' + url));
+    img.src = url;
+  });
+}
 async function buildExportBlobs() {
   const themeTxt = buildThemeTxt();
   const blobs = {};
@@ -2405,9 +2427,17 @@ async function buildExportBlobs() {
   const failedPaths = [];
   for (const [path, url] of Object.entries(blobs)) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('fetch not ok');
-      const buf = await res.arrayBuffer();
+      let buf = null;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('fetch not ok');
+        buf = await res.arrayBuffer();
+      } catch (err) {
+        // fetch() может быть заблокирован (file:// relative path, строгий CSP и т.п.)
+        // — для картинок берём байты через <img>+canvas, это работает всегда
+        if (!/\.(png|jpe?g|gif|bmp|webp)$/i.test(path)) throw err;
+        buf = (await loadImageBytesViaCanvas(url)).buffer;
+      }
       files[path] = new Uint8Array(buf);
     } catch {
       failedPaths.push(path);
@@ -2501,26 +2531,6 @@ async function buildExportBlobs() {
 
 async function exportZip() {
   const { files, sanitizeWarnings, missingFonts } = await buildExportBlobs();
-  // grub.cfg-сниппет: какие loadfont нужны теме (имена из theme.txt -> font/*.pf2)
-  try {
-    const need = projectFontFiles().map(x => x.file);
-    const uniq = [...new Set(need)];
-    let cfg = '# Подключите тему в /etc/default/grub:\n'
-      + '#   GRUB_THEME="/boot/grub/themes/MYTHEME/theme.txt"\n'
-      + '# затем: sudo update-grub (или grub-mkconfig -o /boot/grub/grub.cfg)\n\n';
-    if (uniq.length) {
-      cfg += '# Если ставите тему вручную через grub.cfg (без GRUB_THEME), подгрузите шрифты:\n'
-        + uniq.map(f => `loadfont $prefix/themes/MYTHEME/${f}`).join('\n') + '\n\n';
-    }
-    if (osEntries.length) {
-      cfg += '# ВАЖНО: иконки в icons/ подхватываются GRUB только по классу пункта меню.\n'
-        + '# Найдите нужные menuentry в /boot/grub/grub.cfg (или в /etc/grub.d/*)\n'
-        + '# и добавьте/проверьте --class, совпадающий с именем файла иконки:\n'
-        + osEntries.map((e,i)=>`#   menuentry "${e.name}" --class ${e.osClass || ('os'+(i+1))} { ... }   # icons/${e.osClass || ('os'+(i+1))}.png`).join('\n') + '\n'
-        + '# Если правите /etc/grub.d/*, права на исполняемость и update-grub нужны заново.\n';
-    }
-    files['_HOW_TO_INSTALL.txt'] = fflate.strToU8(cfg);
-  } catch {}
   const allWarnings = [
     ...(sanitizeWarnings || []),
     ...(missingFonts || [])
