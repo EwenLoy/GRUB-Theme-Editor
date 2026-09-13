@@ -331,9 +331,9 @@ function handlePickedImageFile(file, onReady, onError) {
    2) Раздельные файлы-куски (как в реальных темах GRUB: name_nw.png,
       name_n.png, ..., name_c.png) — передаются в поле slices как
       { nw,n,ne,w,c,e,sw,s,se } (любое подмножество, например только w/c/e). */
-function drawNinePatch(c, urlOrSlices, x, y, w, h, border) {
+function drawNinePatch(c, urlOrSlices, x, y, w, h, border, pxScale) {
   if (urlOrSlices && typeof urlOrSlices === 'object' && urlOrSlices.__slices) {
-    return drawSlicedBox(c, urlOrSlices, x, y, w, h);
+    return drawSlicedBox(c, urlOrSlices, x, y, w, h, pxScale);
   }
   // ЧЕСТНОЕ поведение: GRUB НЕ умеет программно нарезать один PNG на 9-slice по border —
   // это всегда набор отдельных файлов prefix_nw.png..prefix_se.png (см. Theme file format,
@@ -351,9 +351,13 @@ function drawNinePatch(c, urlOrSlices, x, y, w, h, border) {
 // Работает при ЛЮБОМ подмножестве кусков — если есть только w/c/e (частый
 // случай для подложки пункта меню, где верх/низ не нужны), центр и боковины
 // просто растягиваются на всю высоту без углов.
-function drawSlicedBox(c, slices, x, y, w, h) {
+function drawSlicedBox(c, slices, x, y, w, h, pxScale) {
   // GRUB : реальный бокс использует родной размер углов/краёв, но если slice больше
   // чем контейнер — пропорционально уменьшает, иначе ломается рендер (гигантские края)
+  // pxScale — масштаб холста редактора: x,y,w,h приходят уже в экранных пикселях
+  // (l.x * sc), поэтому натуральные размеры кусков тоже нужно умножать на него,
+  // иначе на zoom != 100% края рисуются раздутыми/съехавшими (баг рамки меню).
+  const k = pxScale || 1;
   const get = (key) => {
     const url = slices[key];
     const img = url && imgCache[url];
@@ -364,10 +368,10 @@ function drawSlicedBox(c, slices, x, y, w, h) {
   const sw = get('sw'), s = get('s'), se = get('se');
   if (!nw && !n && !ne && !w_ && !ce && !e_ && !sw && !s && !se) return false;
 
-  let leftW = (nw && nw.naturalWidth) || (w_ && w_.naturalWidth) || (sw && sw.naturalWidth) || 0;
-  let rightW = (ne && ne.naturalWidth) || (e_ && e_.naturalWidth) || (se && se.naturalWidth) || 0;
-  let topH = (nw && nw.naturalHeight) || (n && n.naturalHeight) || (ne && ne.naturalHeight) || 0;
-  let botH = (sw && sw.naturalHeight) || (s && s.naturalHeight) || (se && se.naturalHeight) || 0;
+  let leftW = ((nw && nw.naturalWidth) || (w_ && w_.naturalWidth) || (sw && sw.naturalWidth) || 0) * k;
+  let rightW = ((ne && ne.naturalWidth) || (e_ && e_.naturalWidth) || (se && se.naturalWidth) || 0) * k;
+  let topH = ((nw && nw.naturalHeight) || (n && n.naturalHeight) || (ne && ne.naturalHeight) || 0) * k;
+  let botH = ((sw && sw.naturalHeight) || (s && s.naturalHeight) || (se && se.naturalHeight) || 0) * k;
   // если сумма краёв больше контейнера — скейлим края пропорционально вниз
   if (leftW + rightW > w && w > 0) { const s = w / (leftW + rightW); leftW *= s; rightW *= s; }
   if (topH + botH > h && h > 0) { const s = h / (topH + botH); topH *= s; botH *= s; }
@@ -482,8 +486,14 @@ function drawEditor() {
     const ty = (theme.terminalTop / 100) * canvas.height;
     const tw = (theme.terminalWidth / 100) * canvas.width;
     const th = (theme.terminalHeight / 100) * canvas.height;
-    const drew = theme.terminalBoxImg && drawNinePatch(ctx, theme.terminalBoxImg, tx, ty, tw, th, theme.terminalBorder * scale);
-    if (!drew) {
+    const drew = theme.terminalBoxImg && drawNinePatch(ctx, theme.terminalBoxImg, tx, ty, tw, th, theme.terminalBorder * scale, scale);
+    if (!drew && !theme.terminalBoxPattern) {
+      // Тёмный fallback рисуем ТОЛЬКО если пользователь сам включил terminal-box,
+      // но не выбрал картинки. Если тема ссылается на паттерн terminal_box_*.png,
+      // а файлов нет (как в импортированном проекте) — реальный GRUB тоже рисует
+      // ничего: png-loader падает на отсутствующем файле, и никакого затемнения
+      // поверх фона нет. Раньше редактор красил весь холст rgba(0,0,0,0.7),
+      // из-за чего фон выглядел темнее, чем в настоящем GRUB.
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.fillRect(tx, ty, tw, th);
       ctx.strokeStyle = 'rgba(255,255,255,0.3)';
@@ -560,8 +570,6 @@ function drawLayerShape(c, l, sc) {
   const x = l.x * sc, y = l.y * sc, w = l.w * sc, h = l.h * sc;
 
   if (l.type === 'menu') {
-    // GRUB: высота строки фиксируется item_height, не растягивается на высоту контейнера
-    const shown = l.maxItemsShown > 0 ? Math.min(l.maxItemsShown, l.itemCount) : l.itemCount;
     const spacing = (l.itemSpacing || 0) * sc;
     const pad = (l.itemPadding || 0) * sc;
     const iconSpace = (l.itemIconSpace || 8) * sc;
@@ -569,7 +577,7 @@ function drawLayerShape(c, l, sc) {
 
     // рамка всего меню (menu_pixmap_style) — растягивается на весь контейнер как и раньше
     if (l.menuBorderImg) {
-      drawNinePatch(c, l.menuBorderImg, x, y, w, h, (l.menuBorderBorder || 10) * sc);
+      drawNinePatch(c, l.menuBorderImg, x, y, w, h, (l.menuBorderBorder || 10) * sc, sc);
     }
 
     // GRUB (grub-core/gfxmenu/gui_list.c) рисует пункты от ВЕРХНЕГО края контейнера вниз,
@@ -578,19 +586,47 @@ function drawLayerShape(c, l, sc) {
     // строк по вертикали "как будто в GRUB" — это неверно и давало расхождение с реальным рендером.
     const yOffset = 0;
 
+    // GRUB (grub-core/gfxmenu/gui_list.c + widget-box.c): паддинги рамки menu_pixmap_style
+    // равны максимальному натуральному размеру соответствующих кусков
+    // (get_left_pad = max(w,nw,sw), get_top_pad = max(n,nw,ne) и т.д.), и ПУНКТЫ МЕНЮ
+    // рисуются ВНУТРИ этих паддингов, а не от края контейнера. Иначе выделенная строка
+    // перекрывает верхнюю/боковые линии рамки — выглядело «криво» и не как в GRUB.
+    let boxPadL = 0, boxPadR = 0, boxPadT = 0, boxPadB = 0;
+    if (l.menuBorderImg && typeof l.menuBorderImg === 'object') {
+      const dim = (suf, isW) => {
+        const img = imgCache[l.menuBorderImg[suf]];
+        return (img && img.complete && img.naturalWidth) ? (isW ? img.naturalWidth : img.naturalHeight) : 0;
+      };
+      boxPadL = Math.max(dim('w', true), dim('nw', true), dim('sw', true)) * sc;
+      boxPadR = Math.max(dim('e', true), dim('ne', true), dim('se', true)) * sc;
+      boxPadT = Math.max(dim('n', false), dim('nw', false), dim('ne', false)) * sc;
+      boxPadB = Math.max(dim('s', false), dim('sw', false), dim('se', false)) * sc;
+    }
+
+    const contentTop = y + boxPadT + yOffset;
+    const availH = h - boxPadT - boxPadB - yOffset;
+
+    // строки НЕ должны вылезать за нижний край рамки слоя: сколько реально влезает
+    const fitCount = Math.max(1, Math.floor((availH + spacing) / (fixedRowH + spacing)));
+    const shown = Math.min(
+      l.maxItemsShown > 0 ? l.maxItemsShown : l.itemCount,
+      l.itemCount,
+      fitCount
+    );
+
     for (let i = 0; i < shown; i++) {
-      const ry = y + yOffset + i * (fixedRowH + spacing);
+      const ry = contentTop + i * (fixedRowH + spacing);
       const active = i === 0;
       const entry = osEntries[i];
 
       // ширина подложки пункта уменьшается на боковые паддинги (item_padding)
       // в реальном GRUB боковая рамка внутри строки
-      const rowX = x + pad;
-      const rowW = w - pad * 2;
+      const rowX = x + boxPadL + pad;
+      const rowW = Math.max(0, w - boxPadL - boxPadR - pad * 2);
       const rowH = fixedRowH;
       const bgUrl = active ? l.menuSelectedBg : l.menuNormalBg;
       const bgBorder = ((active ? l.menuSelectedBorder : l.menuNormalBorder) || 6) * sc;
-      bgUrl && drawNinePatch(c, bgUrl, rowX, ry, rowW, rowH, bgBorder);
+      bgUrl && drawNinePatch(c, bgUrl, rowX, ry, rowW, rowH, bgBorder, sc);
       // GRUB БЕЗ selected_item_pixmap_style НЕ рисует фон/рамку под выбранным пунктом —
       // он лишь красит текст в selected_item_color. Синий прямоугольник здесь был обманчив,
       // поэтому без заданной 9-patch подложки ничего не подкладываем, как в реальном GRUB.
@@ -602,6 +638,16 @@ function drawLayerShape(c, l, sc) {
       if (entry) {
         // если у записи есть отдельная выбранная иконка — используем её для active
         iconUrl = active ? (entry.selectedImg || entry.normalImg) : entry.normalImg;
+      }
+      // фолбэк: если у ос-записи иконки нет — берём из встроенной библиотеки
+      // default-icons/ по --class записи (или по совпадению имени), как GRUB ищет
+      // <class>.png в папке иконок темы
+      if (entry && !iconUrl) {
+        const cls = defaultIconClassFor(entry);
+        if (cls) {
+          iconUrl = `default-icons/${cls}.png`;
+          cacheImage(iconUrl);
+        }
       }
       // фолбэк: если у ос-записи иконки нет, но в fileMap есть совпадающая по классу
       const iconImg = iconUrl && imgCache[iconUrl] && imgCache[iconUrl].complete ? imgCache[iconUrl] : null;
@@ -643,14 +689,14 @@ function drawLayerShape(c, l, sc) {
       const trackY = y + (l.scrollbarTopPad || 0) * sc;
       const trackH = h - ((l.scrollbarTopPad || 0) + (l.scrollbarBottomPad || 0)) * sc;
       if (l.scrollbarFrameImg) {
-        drawNinePatch(c, l.scrollbarFrameImg, barX, trackY, barW, trackH, 4 * sc);
+        drawNinePatch(c, l.scrollbarFrameImg, barX, trackY, barW, trackH, 4 * sc, sc);
       } else {
         c.fillStyle = 'rgba(255,255,255,0.08)';
         c.fillRect(barX, trackY, barW, trackH);
       }
       const thumbH = Math.max(20 * sc, trackH * (shown / l.itemCount));
       if (l.scrollbarThumbImg) {
-        drawNinePatch(c, l.scrollbarThumbImg, barX, trackY, barW, thumbH, 4 * sc);
+        drawNinePatch(c, l.scrollbarThumbImg, barX, trackY, barW, thumbH, 4 * sc, sc);
       } else {
         c.fillStyle = l.selectedColor;
         c.fillRect(barX, trackY, barW, thumbH);
@@ -659,20 +705,20 @@ function drawLayerShape(c, l, sc) {
   }
 
   if (l.type === 'progress') {
-    const frameDrawn = l.barStyleImg && drawNinePatch(c, l.barStyleImg, x, y, w, h, (l.barStyleBorder || 8) * sc);
+    const frameDrawn = l.barStyleImg && drawNinePatch(c, l.barStyleImg, x, y, w, h, (l.barStyleBorder || 8) * sc, sc);
     if (!frameDrawn) {
       c.fillStyle = l.barBg;
       c.fillRect(x, y, w, h);
     }
     const fillW = w * ((typeof l._previewFrac === 'number') ? l._previewFrac : 0.62);
     // GRUB: value тает к 0 по мере отсчёта; без __timeout__ — статичное демо-значение редактора
-    const hlDrawn = l.highlightStyleImg && drawNinePatch(c, l.highlightStyleImg, x, y, fillW, h, (l.highlightStyleBorder || 8) * sc);
+    const hlDrawn = l.highlightStyleImg && drawNinePatch(c, l.highlightStyleImg, x, y, fillW, h, (l.highlightStyleBorder || 8) * sc, sc);
     if (!hlDrawn) {
       c.fillStyle = l.barColor;
       c.fillRect(x, y, fillW, h);
     } else if (l.highlightOverlay && frameDrawn) {
       // highlight_overlay: заливка рисуется поверх, с наложением скруглений рамки
-      drawNinePatch(c, l.barStyleImg, x, y, w, h, (l.barStyleBorder || 8) * sc);
+      drawNinePatch(c, l.barStyleImg, x, y, w, h, (l.barStyleBorder || 8) * sc, sc);
     }
     if (!frameDrawn) {
       c.strokeStyle = 'rgba(255,255,255,0.15)';
@@ -775,10 +821,30 @@ function drawLayerShape(c, l, sc) {
    КОНФИГУРАЦИЯ ПУНКТОВ МЕНЮ (обычная / выбранная иконка на пункт)
    ============================================================ */
 
-let osEntries = [
-  { id: 1, name: 'Ubuntu, Linux 6.8', normalImg: null, selectedImg: null },
-  { id: 2, name: 'Windows Boot Manager', normalImg: null, selectedImg: null }
-];
+/* Встроенная библиотека иконок (папка default-icons/ рядом с editor.js).
+   Иконка подставляется ос-записи автоматически по --class:
+   default-icons/<class>.png — как GRUB ищет <class>.png в папке иконок. */
+const DEFAULT_ICON_CLASSES = ['4MLinux','AlpineLinux','android','anonymous','antergos','arch','archcraft','archlinux','arcolinux','artix','brunch-settings','brunch','cachyos','cancel','chakra','debian','deepin','devuan','driver','edit','efi','elementary','endeavouros','fedora','find.efi','find.none','freebsd','gentoo','gnu-linux','gpart','haiku','help','hotpe','kali','kaos','kbd','kernel','korora','kubuntu','lang','lfs','lightpe','linux','linuxmint','lubuntu','macosx','mageia','Manjaro.i686','manjaro','Manjaro.x86_64','manjarolinux','memtest','mx-linux','neon','nixos','opensuse','openwrt','parrot','pop-os','pop','recovery','regolith','restart','shutdown','siduction','solus','steamos','submenu','SystemRescueCD','type','tz','ubuntu','ubuntuDDE','unknown','unset','void','vtoyvhd','vtoywim','windows','windows11','xubuntu','zorin'];
+
+function defaultIconClassFor(e) {
+  const norm = s => String(s || '').trim().toLowerCase().replace(/\.png$/, '');
+  const cands = [e.osClass, e.name];
+  for (const cand of cands) {
+    if (!cand) continue;
+    const hit = DEFAULT_ICON_CLASSES.find(c => norm(c) === norm(cand));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function defaultOsEntries() {
+  return [
+    { id: 1, name: 'Ubuntu, Linux 6.8', osClass: 'ubuntu', normalImg: null, selectedImg: null },
+    { id: 2, name: 'Windows Boot Manager', osClass: 'windows', normalImg: null, selectedImg: null }
+  ];
+}
+
+let osEntries = defaultOsEntries();
 let osIdCounter = 3;
 
 function addOsEntry() {
@@ -1702,16 +1768,22 @@ function buildThemeTxt() {
       lines.push(`terminal-box: "${theme.terminalBoxPattern}"`);
     }
     if (theme.terminalFont) lines.push(`terminal-font: "${theme.terminalFont}"`);
-    lines.push(`terminal-border: ${theme.terminalBorder}`);
-    lines.push(`terminal-left: ${theme.terminalLeft}%`);
-    lines.push(`terminal-top: ${theme.terminalTop}%`);
-    lines.push(`terminal-width: ${theme.terminalWidth}%`);
-    lines.push(`terminal-height: ${theme.terminalHeight}%`);
+    // ВАЖНО: все глобальные свойства theme.txt — СТРОКИ В КАВЫЧКАХ (так требует парсер
+    // тем GRUB: любое незакавыченное значение вне блоков → "property value invalid" с
+    // отказом загрузки всей темы). См. официальные темы и Theme file format, GNU GRUB Manual.
+    lines.push(`terminal-border: "${theme.terminalBorder}"`);
+    lines.push(`terminal-left: "${theme.terminalLeft}%"`);
+    lines.push(`terminal-top: "${theme.terminalTop}%"`);
+    lines.push(`terminal-width: "${theme.terminalWidth}%"`);
+    lines.push(`terminal-height: "${theme.terminalHeight}%"`);
   }
   lines.push('');
 
   layers.forEach(l => {
     if (!l.visible) return;
+    // ВАЖНО: внутри блоков (+ boot_menu { ... }) значения свойств пишутся БЕЗ кавычек
+    // (числа, проценты, true/false — так в официальных темах и в docs/example_theme.txt).
+    // Кавычки обязательны ТОЛЬКО для строк (шрифты, цвета, пути) и для ГЛОБАЛЬНЫХ свойств.
     if (l.type === 'menu') {
       lines.push(`+ boot_menu {`);
       lines.push(`  left = ${coord(l.x, STAGE_W)}`);
@@ -2117,7 +2189,7 @@ function newProject() {
   if (!confirm('Создать новый проект? Несохранённые изменения будут потеряны.')) return;
   layers = []; selectedId = null; idCounter = 1;
   bgImage = null; bgImageUrl = null; bgColor = '#000000';
-  osEntries = []; osIdCounter = 1;
+  osEntries = defaultOsEntries(); osIdCounter = 3;
   projectFiles = {}; projectFonts = [];
   STAGE_W = 1920; STAGE_H = 1080;
   theme = {
@@ -2317,7 +2389,15 @@ async function buildExportBlobs() {
   // Поэтому здесь мы вычищаем из theme.txt КАЖДУЮ ссылку на файл, которого реально нет в архиве —
   // не только для фона, — и явно предупреждаем пользователя, что именно было вырезано.
   const sanitizeWarnings = [];
-  let finalThemeTxt = themeTxt;
+  // Неизвестные глобальные ключи из импорта дописываем ПЕРЕД санитайзером — тоже как
+  // СТРОКИ В КАВЫЧКАХ (парсер тем GRUB требует закавыченных значений для глобальных
+  // свойств; незакавыченное значение вне блоков = "property value invalid" и смерть всей темы).
+  let unknownGlobalLines = '';
+  Object.keys(theme.unknownGlobals || {}).forEach(k => {
+    const v = String(theme.unknownGlobals[k]).replace(/"/g, '');
+    unknownGlobalLines += `${k}: "${v}"\n`;
+  });
+  let finalThemeTxt = unknownGlobalLines + themeTxt;
   {
     // Паттерны, пришедшие ИЗ ИМПОРТИРОВАННОЙ темы как есть. Если файлы под них и в
     // исходной теме не существовали (частый случай: terminal-box: "terminal_box_*.png"
