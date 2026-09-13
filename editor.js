@@ -1324,7 +1324,11 @@ function buildOsConfigHtml() {
         <div class="slot-row">
           <div class="slot">
             <div class="slot-label">Иконка (icons/${escapeHtml(e.osClass || 'class')}.png)</div>
-            <div class="slot-box" data-os-normal="${e.id}">${e.normalImg ? `<img src="${e.normalImg}">` : '＋'}</div>
+            <div class="slot-box" data-os-normal="${e.id}">${e.normalImg
+              ? `<img src="${e.normalImg}">`
+              : (defaultIconClassFor(e)
+                  ? `<img src="${getDefaultIconUrl(defaultIconClassFor(e))}" style="opacity:.85;" title="встроенная иконка (default-icons/${escapeHtml(defaultIconClassFor(e))}.png) — клик, чтобы заменить своей">`
+                  : '＋')}</div>
           </div>
         </div>
       </div>
@@ -3455,7 +3459,6 @@ const PANELS = [
   { id: 'canvas-wrap',         label: 'Холст' },
   { id: 'project-tree-wrap',   label: 'Дерево проекта' },
   { id: 'layers',              label: 'Слои' },
-  { id: 'os-config',           label: 'Конфигурация проекта' },
   { id: 'top-toolbar',         label: 'Панель вставки' },
 ];
 

@@ -55,7 +55,17 @@ function i18nApply(root) {
       const orig = node.nodeValue;
       if (!orig || !orig.trim()) continue;
       if (node.__i18nOrig === undefined) node.__i18nOrig = orig;
-      const tr = t(node.__i18nOrig);
+      let tr = t(node.__i18nOrig);
+      // текстовые узлы часто содержат хвостовые пробелы/переносы ("Новый проект ")
+      // — тогда точное совпадение с ключом словаря не срабатывает. Пробуем
+      // перевод обрезанной строки, сохраняя исходные отступы по краям.
+      if (tr === node.__i18nOrig) {
+        const core = node.__i18nOrig.trim();
+        if (core !== node.__i18nOrig) {
+          const t2 = t(core);
+          if (t2 !== core) tr = node.__i18nOrig.replace(core, t2);
+        }
+      }
       if (tr !== orig) node.nodeValue = tr;
     }
     // атрибуты placeholder/title у инпутов и кнопок
