@@ -408,7 +408,7 @@ const NINE_SLOTS = [
   ['w',  '←'], ['c', '·'], ['e',  '→'],
   ['sw', '↙'], ['s', '↓'], ['se', '↘'],
 ];
-function nineSlotHtml(role, val, label) {
+function nineSlotHtml(role, val, label, pattern) {
   const isObj = val && typeof val === 'object';
   const rows = NINE_SLOTS.map(([suf, arrow]) => {
     const url = isObj ? val[suf] : (suf === 'c' && val ? val : null); // старую одиночную картинку кладём в центр как есть, без растяжки
@@ -418,10 +418,19 @@ function nineSlotHtml(role, val, label) {
       </div>
       <input type="file" accept="image/*" data-role="${role}-${suf}-file" style="display:none;">`;
   }).join('');
+  // Если реальной картинки нет, но с импорта осталась "честная" ссылка на путь
+  // (pattern) — она всё равно уйдёт в theme.txt при экспорте и будет вырезана
+  // санитайзером с предупреждением "файл отсутствует", причём КАЖДЫЙ раз, и убрать
+  // её иначе, кроме как загрузив совпадающие PNG, было нечем. Даём явную кнопку сброса.
+  const staleWarning = (!val && pattern) ? `
+    <div class="hint-small" style="color:#c0392b;">⚠ Из импорта осталась ссылка на «${pattern}» — файлов для неё нет, при экспорте будет предупреждение и строка удалится.
+      <button data-role="${role}-clear-pattern" style="margin-left:6px;">✕ убрать ссылку</button>
+    </div>` : '';
   return `
     <div class="txt">${label}</div>
     <div class="hint-small" style="margin-bottom:4px;">Загрузите отдельные PNG для углов/краёв/центра (можно не все) — GRUB использует их как <b>${role.replace(/-/g,'_')}_*.png</b>. Один файл на всё меню GRUB растянуть как 9-patch не умеет.</div>
     <div class="nine-slot-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;width:96px;">${rows}</div>
+    ${staleWarning}
   `;
 }
 
@@ -431,7 +440,7 @@ function singleSlotHtml(role, val, label, hint) {
   return `
     <div class="txt">${label}</div>
     ${hint ? `<div class="hint-small" style="margin-bottom:4px;">${hint}</div>` : ''}
-    <div class="img-slot-mini nine-slot-cell" data-role="${role}-slot" title="картинка" style="width:96px;height:96px;">
+    <div class="img-slot-mini single-slot-cell" data-role="${role}-slot" title="картинка">
       <div class="thumb" data-role="${role}-thumb">${val ? `<img src="${val}">` : '🖼'}</div>
     </div>
     <input type="file" accept="image/*" data-role="${role}-file" style="display:none;">
@@ -441,6 +450,26 @@ function singleSlotHtml(role, val, label, hint) {
 /* ============================================================
    CANVAS: РИСОВАНИЕ РЕДАКТОРА
    ============================================================ */
+
+/* Раньше на холсте ВЕЗДЕ был хардкод "DejaVu Sans Mono", даже если в инспекторе
+   выбран другой шрифт (Unifont, свой .pf2 и т.п.) — выбор шрифта влиял только на
+   экспорт в theme.txt, но не на то, что рисуется в редакторе/превью. Теперь холст
+   действительно подставляет выбранное имя в CSS font-family (с фолбэком на моно),
+   поэтому если у пользователя в ОС/браузере установлен шрифт с таким именем
+   (Unifont довольно часто есть в системе на Linux, DejaVu Sans Mono — почти всегда),
+   предпросмотр станет заметно ближе к реальному GRUB.
+   ВАЖНО: это всё ещё приближение. GRUB рисует не CSS-шрифт, а конкретный растровый
+   .pf2 побайтово — свою битмап-геометрию глифов, без хинтинга/антиалиасинга браузера.
+   Полное 1:1 совпадение возможно только если сам распарсить .pf2 и рисовать глифы
+   как пиксели на canvas — это отдельная большая фича, а не поправка стека шрифтов. */
+function fontStackFor(name) {
+  const n = (name || 'DejaVu Sans Mono').trim();
+  const quoted = `"${n.replace(/"/g, '')}"`;
+  const stack = [quoted];
+  if (n !== 'DejaVu Sans Mono') stack.push('"DejaVu Sans Mono"');
+  stack.push('"Cascadia Code"', '"Consolas"', 'monospace');
+  return stack.join(',');
+}
 
 function drawEditor() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -467,12 +496,12 @@ function drawEditor() {
 
   // title-text (глобальный, наверху по центру)
   if (theme.titleVisible && theme.titleText) {
-    const monoStack = '"DejaVu Sans Mono","Cascadia Code","Consolas",monospace';
     const titleParts = String(theme.titleFont || 'DejaVu Sans Mono Bold 28').match(/^(.*?)\s+(Bold|Regular|Italic|BoldItalic)\s+(\d+)$/i);
+    const titleFontName = titleParts ? titleParts[1] : 'DejaVu Sans Mono';
     const titleSize = titleParts ? parseInt(titleParts[3], 10) : 28;
     const titleBold = titleParts ? /bold/i.test(titleParts[2]) : true;
     ctx.fillStyle = theme.titleColor;
-    ctx.font = `${titleBold ? '600 ' : ''}${titleSize * scale}px ${monoStack}`;
+    ctx.font = `${titleBold ? '600 ' : ''}${titleSize * scale}px ${fontStackFor(titleFontName)}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(theme.titleText, canvas.width / 2, 20 * scale);
@@ -585,14 +614,10 @@ function drawLayerShape(c, l, sc) {
         // даже если картинки нет — оставляем отступ как под иконку, чтобы как в GRUB
         textX = rowX + 4 * sc + iconW + iconSpace;
       }
-      // GRUB использует моноширинный PF2 (обычно DejaVu Sans Mono) + пт-размер * DPI. Sans в браузере даёт другую метрику — поэтому разница.
-      const monoStack = '\"DejaVu Sans Mono\",\"Cascadia Code\",\"Consolas\",monospace';
-      const labelFontName = (l.itemFont && l.itemFont.split(' ')[0]) || 'Sans';
-      // если пользователь поставил большой размер — масштабируем к GRUB-ожидаемому (GRUB видит тот же px иначе из-за 800×600 vs 1920×1080)
+      // GRUB рисует .pf2 битмап-шрифт — реальное имя шрифта задаётся в инспекторе (fontName)
       const fs = (active && l.selectedFontSize ? l.selectedFontSize : l.fontSize) * sc;
       c.fillStyle = active ? l.selectedColor : l.color;
-      // в QEMU видно моноширинный рендер — используем моно для близости
-      c.font = `${fs}px ${monoStack}`;
+      c.font = `${fs}px ${fontStackFor(l.fontName)}`;
       c.textBaseline = 'middle';
       const label = entry ? entry.name : `Пункт ${i + 1}`;
       c.save();
@@ -655,8 +680,7 @@ function drawLayerShape(c, l, sc) {
     }
     if (l.showBarText) {
       c.fillStyle = l.barTextColor || '#ffffff';
-      const monoStack = '"DejaVu Sans Mono","Cascadia Code","Consolas",monospace';
-      c.font = `${Math.max(10, (l.barFontSize || 16) * sc)}px ${monoStack}`;
+      c.font = `${Math.max(10, (l.barFontSize || 16) * sc)}px ${fontStackFor(l.barFontName || l.fontName)}`;
       c.textAlign = 'center';
       c.textBaseline = 'middle';
       const displayText = l.barText.replace('%d', '7');
@@ -708,10 +732,9 @@ function drawLayerShape(c, l, sc) {
 
   if (l.type === 'label') {
     c.fillStyle = l.color;
-    const monoStack = '"DejaVu Sans Mono","Cascadia Code","Consolas",monospace';
     // GRUB рисует PF2 bitmap-шрифты — по умолчанию Unifont/DejaVu Sans Mono, БЕЗ автоматической жирности.
     // "600 sans-serif" визуально шире/жирнее реального рендера и сдвигает раскладку — убираем оба искажения.
-    c.font = `${l.fontBold ? '600 ' : ''}${l.fontSize * sc}px ${monoStack}`;
+    c.font = `${l.fontBold ? '600 ' : ''}${l.fontSize * sc}px ${fontStackFor(l.fontName)}`;
     c.textBaseline = 'top';
     const align = l.align || 'left';
     c.textAlign = align;
@@ -1220,24 +1243,26 @@ function renderInspector() {
       <div class="field-group">
         <h4>Меню загрузки</h4>
         <div class="hint-small">Подложка строки: в GRUB это <b>только</b> PNG-рамка (item_pixmap_style / selected_item_pixmap_style). Заливка цветом «как в редакторе» без картинки в GRUB невозможна — задайте 9-patch ниже.</div>
-        <div class="field"><label><b>Пунктов на макете</b></label><input type="number" data-k="itemCount" value="${l.itemCount}" min="1" max="20"></div>
-        <div class="field"><label></label><button data-action="sync-item-count" style="width:100%;">= кол-ву записей в «Конфигурации ОС» (${osEntries.length})</button></div>
-        <div class="hint-small">⚠ Это только визуальные строки-заглушки для верстки в редакторе. Реальное число пунктов в GRUB определяет <b>grub.cfg</b> (сколько там menuentry — столько и будет), редактор на это не влияет. Меняйте это число, чтобы точнее прикинуть высоту/раскладку меню под ваш реальный список ОС.</div>
         <div class="field"><label>Видно одновременно (max_items_shown)</label><input type="number" data-k="maxItemsShown" value="${l.maxItemsShown}" min="0" title="0 = показывать все"></div>
-        <div class="hint-small">Если реальных пунктов больше этого числа — GRUB не обрежет список, а включит прокрутку (scrollbar) внутри меню. 0 = показывать всё без ограничения.</div>
+        <div class="hint-small">0 = показывать всё.</div>
         <div class="field"><label>Размер шрифта (px)</label><input type="number" data-k="fontSize" value="${l.fontSize}" min="8" max="96"></div>
+        ${l.itemFontRef
+          ? `<div class="hint-small">✓ Привязан к реальному файлу: <b>${escapeHtml(l.itemFontRef)}</b></div>`
+          : `<div class="hint-small">⚠ Реального .pf2 не загружено — в GRUB будет встроенный шрифт.</div>`}
         <div class="field"><label>Шрифт пунктов</label>
           <select data-k="fontName">
             ${['DejaVu Sans Mono', 'DejaVu Sans', 'Unifont', ...projectFonts.map(f=>f.name.replace(/\s+(Bold|Regular|Italic|BoldItalic)\s+\d+$/i,'')).filter((v,i,a)=>a.indexOf(v)===i)].filter((v,i,a)=>a.indexOf(v)===i).map(n => `<option value="${n}" ${ (l.fontName||'DejaVu Sans Mono')===n ? 'selected' : ''}>${n}</option>`).join('')}
           </select>
         </div>
         <div class="field"><label></label><button data-action="upload-menu-font" style="width:100%;">+ Загрузить свой шрифт .pf2</button></div>
-        <div class="hint-small">По умолчанию используется <b>DejaVu Sans Mono</b> — стандартный шрифт GRUB. В реальном GRUB работают только .pf2-шрифты; ${needFonts.length ? `нужны в ZIP: ${needFonts.map(x => `<b>${x.file}</b>`).join(', ')}.` : 'загрузите свой .pf2, иначе GRUB возьмёт встроенный по умолчанию.'}</div>
+        <div class="hint-small">В GRUB работают только .pf2-шрифты. ${needFonts.length ? `Нужны в ZIP: ${needFonts.map(x => `<b>${x.file}</b>`).join(', ')}.` : 'Загрузите свой .pf2, иначе будет встроенный шрифт.'}</div>
         <div class="field"><label>Шрифт выбранного (px, 0 = как у пунктов)</label><input type="number" data-k="selectedFontSize" value="${l.selectedFontSize || 0}" min="0" max="96"></div>
+        ${l.hasSeparateSelectedFont && l.selectedItemFontRef
+          ? `<div class="hint-small">✓ Привязан к реальному файлу: <b>${escapeHtml(l.selectedItemFontRef)}</b>. Изменение размера сбросит привязку.</div>`
+          : (l.selectedFontSize ? `<div class="hint-small">⚠ Реального .pf2 под этот размер не загружено — приближение.</div>` : '')}
         <div class="field"><label>Цвет текста</label><input type="color" data-k="color" value="${l.color}"></div>
         <div class="field"><label>Цвет выбранного</label><input type="color" data-k="selectedColor" value="${l.selectedColor}"></div>
         <div class="field"><label><b>item_height</b> (высота/толщина пункта, px)</label><input type="number" data-k="itemHeight" value="${l.itemHeight || 32}" min="8" max="300"></div>
-        <div class="hint-small">⚠ Это главный параметр «толщины» строк списка. Если растянуть рамку слоя (Высота выше) больше, чем нужно для всех пунктов — GRUB <b>не центрирует</b> список по вертикали, а прижимает его к верху рамки; лишнее место остаётся пустым снизу. Хотите пункты крупнее и шире — увеличивайте именно item_height (+ Размер шрифта выше), а не просто высоту рамки.</div>
         <div class="field"><label>item_padding</label><input type="number" data-k="itemPadding" value="${l.itemPadding}"></div>
         <div class="hint-small">Горизонтальный отступ пунктов от левого/правого края рамки меню (не толщина строки).</div>
         <div class="field"><label>item_spacing</label><input type="number" data-k="itemSpacing" value="${l.itemSpacing}"></div>
@@ -1248,20 +1273,20 @@ function renderInspector() {
       </div>
       <div class="field-group">
         <h4>Рамка меню (menu_pixmap_style)</h4>
-        ${nineSlotHtml('menu-border', l.menuBorderImg, 'Рамка вокруг всего меню (9-patch)')}
+        ${nineSlotHtml('menu-border', l.menuBorderImg, 'Рамка вокруг всего меню (9-patch)', l.menuBorderPattern)}
       </div>
       <div class="field-group">
         <h4>Подложка пункта (9-patch, необязательно)</h4>
-        ${nineSlotHtml('menu-normal-bg', l.menuNormalBg, 'Обычный пункт — рамка')}
-        ${nineSlotHtml('menu-selected-bg', l.menuSelectedBg, 'Выбранный пункт — рамка')}
+        ${nineSlotHtml('menu-normal-bg', l.menuNormalBg, 'Обычный пункт — рамка', l.menuNormalPattern)}
+        ${nineSlotHtml('menu-selected-bg', l.menuSelectedBg, 'Выбранный пункт — рамка', l.menuSelectedPattern)}
         <div class="hint-small">Без картинки GRUB подложку НЕ рисует вообще — выбранный пункт отличается только цветом текста (selected_item_color).</div>
       </div>
       <div class="field-group">
         <h4>Скроллбар</h4>
         <div class="field"><label>Включён</label><input type="checkbox" data-k="scrollbarEnabled" data-type="checkbox" ${l.scrollbarEnabled ? 'checked' : ''}></div>
         ${l.scrollbarEnabled ? `
-          ${nineSlotHtml('scrollbar-frame', l.scrollbarFrameImg, 'scrollbar_frame (9-patch)')}
-          ${nineSlotHtml('scrollbar-thumb', l.scrollbarThumbImg, 'scrollbar_thumb (9-patch)')}
+          ${nineSlotHtml('scrollbar-frame', l.scrollbarFrameImg, 'scrollbar_frame (9-patch)', l.scrollbarFramePattern)}
+          ${nineSlotHtml('scrollbar-thumb', l.scrollbarThumbImg, 'scrollbar_thumb (9-patch)', l.scrollbarThumbPattern)}
           <div class="field"><label>thumb_overlay</label><input type="checkbox" data-k="scrollbarThumbOverlay" data-type="checkbox" ${l.scrollbarThumbOverlay ? 'checked' : ''}></div>
           <div class="field"><label>Расположение</label>
             <select data-k="scrollbarSlice">
@@ -1303,7 +1328,10 @@ function renderInspector() {
           </select>
         </div>
         <div class="field"><label></label><button data-action="upload-menu-font" style="width:100%;">+ Загрузить свой шрифт .pf2</button></div>
-        <div class="field"><label>Размер шрифта</label><input type="number" data-k="barFontSize" value="${l.barFontSize || 16}" min="6"></div>` : ''}
+        <div class="field"><label>Размер шрифта</label><input type="number" data-k="barFontSize" value="${l.barFontSize || 16}" min="6"></div>
+        ${l.barFontRef
+          ? `<div class="hint-small">✓ Привязан к реальному файлу: <b>${escapeHtml(l.barFontRef)}</b>. Изменение размера сбросит привязку — .pf2 не масштабируется.</div>`
+          : `<div class="hint-small">⚠ Реального .pf2 под эту комбинацию не загружено — приближение системным шрифтом браузера.</div>`}` : ''}
       </div>
       <div class="field-group">
         <h4>Styled boxes (9-patch)</h4>
@@ -1365,6 +1393,9 @@ function renderInspector() {
         </div>
         <div class="field"><label></label><button data-action="upload-menu-font" style="width:100%;">+ Загрузить свой шрифт .pf2</button></div>
         <div class="field"><label>Размер шрифта</label><input type="number" data-k="fontSize" value="${l.fontSize}"></div>
+        ${l.fontRef
+          ? `<div class="hint-small">✓ Привязан к реальному файлу: <b>${escapeHtml(l.fontRef)}</b></div>`
+          : `<div class="hint-small">⚠ Реального .pf2 не загружено — в GRUB будет встроенный шрифт.</div>`}
         <div class="field"><label>Жирный</label><input type="checkbox" data-k="fontBold" data-type="checkbox" ${l.fontBold ? 'checked' : ''}></div>
         <div class="field"><label>Цвет</label><input type="color" data-k="color" value="${l.color}"></div>
         <div class="field"><label>Выравнивание</label>
@@ -1409,11 +1440,33 @@ function renderInspector() {
 
   // Фокус-фикс: el.innerHTML пересоздаёт DOM — renderAll() убьёт фокус, поэтому guard в renderAll + тут
   let textDebounce = null;
+// pf2 — растровый (bitmap) шрифт ФИКСИРОВАННОГО кегля: один .pf2-файл содержит глифы
+// ровно одного размера/начертания, GRUB его не масштабирует (в отличие от TTF/OTF).
+// Если слой уже привязан к конкретному загруженному файлу (fontRef/itemFontRef/...),
+// а пользователь потом меняет размер/семейство/жирность в инспекторе "на глаз" — эта
+// привязка становится ложью: холст покажет один размер, а реально в GRUB отрисуется
+// либо старый зашитый в файл размер, либо (если строка перестала совпадать вообще
+// ни с одним loadfont) GRUB молча откатится на встроенный дефолт — то, что видно
+// на скриншоте QEMU: заказанный "Comic Sans MS" не нашёлся, и GRUB тихо взял свой шрифт.
+// Поэтому при таком изменении сбрасываем привязку — честное предупреждение
+// "шрифт не найден, нужен .pf2 такого-то кегля" лучше, чем тихое рассогласование.
+function invalidateFontRefOnEdit(l, k) {
+  if (l.type === 'menu' && (k === 'fontSize' || k === 'fontName')) {
+    l.itemFontRef = null;
+  } else if (l.type === 'menu' && k === 'selectedFontSize') {
+    l.selectedItemFontRef = null;
+  } else if (l.type === 'label' && (k === 'fontSize' || k === 'fontName' || k === 'fontBold')) {
+    l.fontRef = null;
+  } else if (l.type === 'progress' && (k === 'barFontSize' || k === 'barFontName')) {
+    l.barFontRef = null;
+  }
+}
   el.querySelectorAll('input[data-k], select[data-k]').forEach(inp => {
     const k = inp.getAttribute('data-k');
     const handler = () => {
       if (inp.type === 'checkbox') {
         l[k] = inp.checked;
+        invalidateFontRefOnEdit(l, k);
         const keepK = k;
         renderInspector();
         const n = document.querySelector(`#inspector-body input[data-k=\"${keepK}\"]`);
@@ -1430,6 +1483,7 @@ function renderInspector() {
       } else {
         l[k] = inp.type === 'number' ? Number(inp.value) : inp.value;
       }
+      invalidateFontRefOnEdit(l, k);
       if ((k === 'w' || k === 'h') && l.type === 'image') l.imgAutoSize = false;
       l.name = defaultName(l);
       if (inp.type === 'number') {
@@ -1455,16 +1509,6 @@ function renderInspector() {
     });
   });
 
-  // Кнопка "= кол-ву записей в Конфигурации ОС" — быстрая синхронизация itemCount
-  const syncBtn = el.querySelector('[data-action="sync-item-count"]');
-  if (syncBtn) {
-    syncBtn.addEventListener('click', () => {
-      if (osEntries.length > 0) {
-        l.itemCount = Math.min(20, osEntries.length);
-        renderAll();
-      }
-    });
-  }
 
   // Кнопка "+ Загрузить свой шрифт .pf2" в инспекторе меню — читает реальное имя из .pf2
   // (или честно угадывает по имени файла, если бинарник нечитаем) и запоминает РЕАЛЬНЫЙ
@@ -1477,8 +1521,29 @@ function renderInspector() {
       inp.onchange = async (ev) => {
         const f = ev.target.files[0]; if (!f) return;
         const entry = await addProjectFont(f);
-        l.itemFontRef = entry.name;   // item_font ссылается на это точное имя шрифта
-        l.fontName = entry.name.replace(/\s+(Bold|Regular|Italic|BoldItalic)\s+\d+$/i, '');
+        // ВАЖНО: эта кнопка используется в трёх разных местах инспектора (шрифт пункта
+        // меню, шрифт лейбла, шрифт текста прогресс-бара) — раньше здесь БЕЗУСЛОВНО
+        // писалось в l.itemFontRef, которое реально используется только слоем 'menu'.
+        // Для label/progress это поле никто не читает: экспорт брал l.fontRef/l.barFontRef,
+        // те оставались пустыми, и в theme.txt уходило синтезированное "Имя Bold/Regular N",
+        // которое почти никогда не совпадает 1-в-1 с тем, что реально зашито в .pf2 —
+        // отсюда ложное "шрифт не найден" даже после успешной загрузки файла.
+        const parsed = parseFontString(entry.name);
+        if (l.type === 'label') {
+          l.fontRef = entry.name;
+          l.fontName = parsed.name;
+          l.fontSize = parsed.size;
+          l.fontBold = parsed.bold;
+        } else if (l.type === 'progress') {
+          l.barFontRef = entry.name;
+          l.barFontName = parsed.name;
+          l.barFontSize = parsed.size;
+        } else {
+          // menu (шрифт обычных пунктов, item_font)
+          l.itemFontRef = entry.name;
+          l.fontName = parsed.name;
+          l.fontSize = parsed.size;
+        }
         l.name = defaultName(l);
         renderAll();
         renderInspector();
@@ -1501,6 +1566,27 @@ function renderInspector() {
     'tick-bitmap': 'tickBitmap',
     'image-file-slot': 'imgUrl',
   };
+  // Кнопка "✕ убрать ссылку" рядом с 9-slice слотами: сбрасывает "честно сохранённый"
+  // путь из импорта (menuBorderPattern/menuNormalPattern/menuSelectedPattern/
+  // scrollbarFramePattern/scrollbarThumbPattern), для которого нет ни одного реально
+  // загруженного файла — иначе эта ссылка молча уходила бы в каждый экспорт и каждый
+  // раз ловилась бы санитайзером как "файл отсутствует", а убрать её было нечем.
+  const patternKeyMap = {
+    'menu-border': 'menuBorderPattern',
+    'menu-normal-bg': 'menuNormalPattern',
+    'menu-selected-bg': 'menuSelectedPattern',
+    'scrollbar-frame': 'scrollbarFramePattern',
+    'scrollbar-thumb': 'scrollbarThumbPattern',
+  };
+  Object.entries(patternKeyMap).forEach(([role, patternKey]) => {
+    const btn = el.querySelector(`[data-role="${role}-clear-pattern"]`);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      l[patternKey] = null;
+      renderInspector();
+      renderAll();
+    });
+  });
   Object.entries(slotKeyMap).forEach(([role, targetKey]) => {
     // 9-slice виджеты (рамка меню, подложки пунктов, скроллбар, terminal-box) —
     // теперь по 9 отдельных слотов nw/n/ne/w/c/e/sw/s/se вместо одного.
@@ -3223,6 +3309,11 @@ function projectFontFiles() {
   if (theme.titleVisible && theme.titleText) used.add(theme.titleFont);
   if (theme.terminalVisible && theme.terminalFont) used.add(theme.terminalFont);
   layers.forEach(l => {
+    // ВАЖНО: сам экспорт theme.txt (сборка блоков) пропускает невидимые слои
+    // (if (!l.visible) return;) — их свойства вообще не попадают в файл. Раньше здесь
+    // этой проверки не было, и редактор мог требовать/предупреждать про шрифт слоя,
+    // которого в экспортированной теме нет вовсе (например, временно скрытый лейбл).
+    if (!l.visible) return;
     if (l.type === 'menu') {
       used.add(l.itemFontRef || `${l.fontName || 'DejaVu Sans Mono'} Regular ${l.fontSize}`);
       if (l.hasSeparateSelectedFont) {
@@ -3481,10 +3572,11 @@ function openPreview() {
     // title
     if (theme.titleVisible && theme.titleText) {
       const tParts = String(theme.titleFont || 'DejaVu Sans Mono Bold 28').match(/^(.*?)\s+(Bold|Regular|Italic|BoldItalic)\s+(\d+)$/i);
+      const tFontName = tParts ? tParts[1] : 'DejaVu Sans Mono';
       const tSize = tParts ? parseInt(tParts[3], 10) : 28;
       const tBold = tParts ? /bold/i.test(tParts[2]) : true;
       pctx.fillStyle = theme.titleColor;
-      pctx.font = `${tBold ? '600 ' : ''}${tSize}px "DejaVu Sans Mono",monospace`;
+      pctx.font = `${tBold ? '600 ' : ''}${tSize}px ${fontStackFor(tFontName)}`;
       pctx.textAlign='center'; pctx.fillText(theme.titleText, pc.width/2, 24); pctx.textAlign='left';
     }
     layers.forEach(l=>{

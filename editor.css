@@ -231,6 +231,9 @@
   /* сетка 3х3 для честного 9-slice виджета (углы/края/центр по отдельности) */
   .nine-slot-cell{display:block;margin:0;padding:0;}
   .nine-slot-cell .thumb{width:100%;height:28px;}
+  /* одиночный слот (не 9-patch): слой "Картинка", center_bitmap, tick_bitmap — крупное превью */
+  .single-slot-cell{display:block;margin:0;padding:0;}
+  .single-slot-cell .thumb{width:96px;height:96px;font-size:28px;}
 
   ::-webkit-scrollbar{width:9px;height:9px;}
   ::-webkit-scrollbar-track{background:transparent;}
