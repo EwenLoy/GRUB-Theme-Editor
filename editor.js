@@ -637,7 +637,7 @@ function drawLayerShape(c, l, sc) {
       if (entry && !iconUrl) {
         const cls = defaultIconClassFor(entry);
         if (cls) {
-          iconUrl = `default-icons/${cls}.png`;
+          iconUrl = getDefaultIconUrl(cls);
           cacheImage(iconUrl);
         }
       }
@@ -839,12 +839,26 @@ function defaultIconClassFor(e) {
   return null;
 }
 
+/* URL дефолтной иконки: сначала ВСТРОЕННЫЕ data-URL из default-icons-data.js —
+   они работают при открытии index.html как file:// без всякого сервера
+   (fetch() на file:// запрещён, а canvas с file://-картинкой tainted и toBlob/toDataURL
+   кидают SecurityError — поэтому внешний путь был только запасным вариантом). */
+function getDefaultIconUrl(cls) {
+  if (typeof DEFAULT_ICONS_DATA !== 'undefined' && DEFAULT_ICONS_DATA && DEFAULT_ICONS_DATA[cls]) {
+    return DEFAULT_ICONS_DATA[cls];
+  }
+  return `default-icons/${cls}.png`;
+}
+
 /* Дефолтные иконки в экспорт: относительный путь default-icons/... нельзя отдать
    напрямую в сборщик ZIP (fetch() на file:// запрещён), поэтому конвертируем PNG
-   в dataURL через canvas — data: URL fetch() берёт без проблем. */
+   в dataURL через canvas — data: URL fetch() берёт без проблем.
+   Встроенные data-URL (DEFAULT_ICONS_DATA) берутся сразу, без конвертации. */
 const _defaultIconDataUrlCache = {};
 function loadDefaultIconDataUrl(cls) {
   if (cls in _defaultIconDataUrlCache) return Promise.resolve(_defaultIconDataUrlCache[cls]);
+  const embedded = (typeof DEFAULT_ICONS_DATA !== 'undefined' && DEFAULT_ICONS_DATA) ? DEFAULT_ICONS_DATA[cls] : null;
+  if (embedded) { _defaultIconDataUrlCache[cls] = embedded; return Promise.resolve(embedded); }
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
@@ -2381,7 +2395,7 @@ async function buildExportBlobs() {
     let src = e.normalImg;
     if (!src) {
       const dcls = defaultIconClassFor(e);
-      if (dcls) src = await loadDefaultIconDataUrl(dcls);
+      if (dcls) src = getDefaultIconUrl(dcls);
     }
     if (src) blobs[`icons/${cls}.png`] = src;
   }

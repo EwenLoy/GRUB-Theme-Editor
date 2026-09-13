@@ -40,7 +40,7 @@
     <button id="btn-preview" title="Превью GRUB (как в Construct ▶)" style="background:var(--accent-dim);border-color:var(--accent);">▶ Превью</button>
     <button id="btn-export-zip">Экспорт ZIP</button>
     <button class="primary" id="btn-export">Экспорт theme.txt</button>
-    <span style="font-size:10px;color:var(--text-2);margin-left:8px;user-select:none;" title="Версия сборки editor.js — если видна, код обновлён">v2.1</span>
+    <span style="font-size:10px;color:var(--text-2);margin-left:8px;user-select:none;" title="Версия сборки editor.js — если видна, код обновлён">v2.2</span>
   </div>
 
   <div id="main-row">
@@ -238,6 +238,7 @@
   <div style="font-size:11px;color:var(--text-2);max-width:720px;text-align:center;">Рендер приближён к GRUB (моноширинный шрифт, целые %, без скруглений). Для точного — тест в QEMU. Esc — закрыть.</div>
 </div>
 <script src="fflate.js"></script>
+<script src="default-icons-data.js"></script>
 <script src="editor.js"></script>
 <script>
 document.getElementById('btn-preview').addEventListener('click', ()=>{ if(typeof openPreview==='function') openPreview(); });
