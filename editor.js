@@ -217,53 +217,111 @@ function cacheImage(url, onDone) {
   imgCache[url] = img;
 }
 
+/* ---------- Отрисовка фонового изображения с учётом desktop-image-scale-method ----
+   GRUB поддерживает 5 режимов (desktop-image-scale-method):
+   stretch    — растянуть на весь холст без сохранения пропорций (было раньше — единственный режим в редакторе)
+   crop       — масштаб с сохранением пропорций, заполняя весь холст, обрезая лишнее (как CSS background-size: cover)
+   padding    — без масштабирования, оригинальный размер, позиционируется по halign/valign, остальное — bgColor
+   fitwidth   — масштаб по ширине холста с сохранением пропорций, по высоте — letterbox сверху/снизу по valign
+   fitheight  — масштаб по высоте холста с сохранением пропорций, по ширине — letterbox слева/справа по halign
+   Используется и в редакторе (drawEditor), и в превью (openPreview/renderFrame) — чтобы поведение совпадало. */
+function drawThemeBackground(c, img, cw, ch, method, halign, valign, fillColor) {
+  if (!img) { c.fillStyle = fillColor || '#000000'; c.fillRect(0, 0, cw, ch); return; }
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  if (!iw || !ih) { c.drawImage(img, 0, 0, cw, ch); return; }
+  const alignOffset = (avail, size, align) => {
+    if (align === 'left' || align === 'top') return 0;
+    if (align === 'right' || align === 'bottom') return avail - size;
+    return (avail - size) / 2; // center
+  };
+  method = method || 'stretch';
+  if (method === 'stretch') {
+    c.drawImage(img, 0, 0, cw, ch);
+    return;
+  }
+  // для остальных режимов сперва заливаем фон цветом (видно в padding/fitwidth/fitheight, если картинка не покрывает весь холст)
+  c.fillStyle = fillColor || '#000000';
+  c.fillRect(0, 0, cw, ch);
+  if (method === 'crop') {
+    const scaleFactor = Math.max(cw / iw, ch / ih);
+    const dw = iw * scaleFactor, dh = ih * scaleFactor;
+    const dx = alignOffset(cw, dw, halign), dy = alignOffset(ch, dh, valign);
+    c.save();
+    c.beginPath(); c.rect(0, 0, cw, ch); c.clip();
+    c.drawImage(img, dx, dy, dw, dh);
+    c.restore();
+  } else if (method === 'padding') {
+    const dx = alignOffset(cw, iw, halign), dy = alignOffset(ch, ih, valign);
+    c.save();
+    c.beginPath(); c.rect(0, 0, cw, ch); c.clip();
+    c.drawImage(img, dx, dy, iw, ih);
+    c.restore();
+  } else if (method === 'fitwidth') {
+    const scaleFactor = cw / iw;
+    const dw = cw, dh = ih * scaleFactor;
+    const dy = alignOffset(ch, dh, valign);
+    c.drawImage(img, 0, dy, dw, dh);
+  } else if (method === 'fitheight') {
+    const scaleFactor = ch / ih;
+    const dh = ch, dw = iw * scaleFactor;
+    const dx = alignOffset(cw, dw, halign);
+    c.drawImage(img, dx, 0, dw, dh);
+  } else {
+    c.drawImage(img, 0, 0, cw, ch);
+  }
+}
+
 /* ---------- Файл -> PNG object URL --------------------------------
    GRUB читает ТОЛЬКО настоящие PNG (grub2's png loader падает на
    "error: png: not a png file" на любом jpg/webp с расширением .png
    и на честных jpg/webp тоже). Здесь любой выбранный файл картинки
    перегоняется через canvas и отдаётся уже как настоящий image/png
-   object URL — так что пользователю не нужно самому конвертировать. */
+   object URL — так что пользователю не нужно самому конвертировать.
+
+   ВАЖНО про прозрачность: PNG-ридер GRUB (grub-core/video/readers/png.c)
+   корректно понимает альфа-канал только у "честного" 32-битного RGBA PNG
+   без палитры (indexed/8-bit + tRNS), без 16-бит-на-канал и без interlace.
+   Если исходник — indexed PNG с tRNS-прозрачностью (частый результат экспорта
+   из графредакторов, "Save for Web" и т.п.) или PNG с ICC-профилем/интерлейсом,
+   браузер эту прозрачность честно показывает, а GRUB — НЕТ: вместо прозрачных
+   пикселей он подставляет чёрный (как непрозрачный чёрный фон). Поэтому в
+   редакторе фон выглядит прозрачным, а в реальном GRUB — чёрным.
+   Чтобы так не происходило, ЛЮБОЙ файл (даже уже валидный PNG) всегда
+   перегоняется через canvas — это гарантированно даёт простой некомпрессованный
+   в смысле формата, не-indexed, не-interlaced RGBA PNG, с которым GRUB работает
+   предсказуемо. */
 function fileToPngObjectURL(file) {
   return new Promise((resolve, reject) => {
     if (!file) { reject(new Error('no file')); return; }
-    // уже PNG по сигнатуре (первые байты 89 50 4E 47) — не трогаем, просто отдаём как есть (быстрее, без потери качества)
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error('read failed'));
-    reader.onload = () => {
-      const buf = new Uint8Array(reader.result.slice(0, 8));
-      const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-      if (isPng) {
-        resolve(URL.createObjectURL(file));
-        return;
-      }
-      // не PNG (jpg/webp/gif/bmp/...) — конвертируем через canvas
-      const blobUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const cnv = document.createElement('canvas');
-          cnv.width = img.naturalWidth; cnv.height = img.naturalHeight;
-          const cctx = cnv.getContext('2d');
-          cctx.drawImage(img, 0, 0);
-          cnv.toBlob((pngBlob) => {
-            URL.revokeObjectURL(blobUrl);
-            if (!pngBlob) { reject(new Error('canvas toBlob failed')); return; }
-            resolve(URL.createObjectURL(pngBlob));
-          }, 'image/png');
-        } catch (err) { URL.revokeObjectURL(blobUrl); reject(err); }
-      };
-      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('image decode failed — файл повреждён или не является изображением')); };
-      img.src = blobUrl;
+    const blobUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cnv = document.createElement('canvas');
+        cnv.width = img.naturalWidth; cnv.height = img.naturalHeight;
+        const cctx = cnv.getContext('2d');
+        // явно очищаем в прозрачный чёрный (alpha=0), чтобы не потянуть непрозрачный
+        // фон канваса — drawImage дальше корректно наложит альфу исходника поверх
+        cctx.clearRect(0, 0, cnv.width, cnv.height);
+        cctx.drawImage(img, 0, 0);
+        cnv.toBlob((pngBlob) => {
+          URL.revokeObjectURL(blobUrl);
+          if (!pngBlob) { reject(new Error('canvas toBlob failed')); return; }
+          resolve(URL.createObjectURL(pngBlob));
+        }, 'image/png');
+      } catch (err) { URL.revokeObjectURL(blobUrl); reject(err); }
     };
-    reader.readAsArrayBuffer(file.slice(0, 8));
+    img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('image decode failed — файл повреждён или не является изображением')); };
+    img.src = blobUrl;
   });
 }
 // Универсальный обработчик <input type="file"> для картинок: конвертирует в PNG и передаёт готовый object URL в callback(url).
 // В случае ошибки — показывает alert и не трогает существующее значение.
-function handlePickedImageFile(file, onReady) {
+function handlePickedImageFile(file, onReady, onError) {
   if (!file) return;
   fileToPngObjectURL(file).then(onReady).catch((err) => {
     alert('Не удалось загрузить картинку (' + (err && err.message ? err.message : 'ошибка') + '). Файл должен быть настоящим изображением (PNG/JPEG/WebP и т.п.).');
+    if (onError) onError(err);
   });
 }
 
@@ -367,6 +425,19 @@ function nineSlotHtml(role, val, label) {
   `;
 }
 
+// Простая ОДНА картинка (не 9-patch) — для слоя "Картинка" и center_bitmap/tick_bitmap
+// кругового прогресса, где GRUB ожидает один-единственный PNG-файл, а не набор *_nw/_n/... .
+function singleSlotHtml(role, val, label, hint) {
+  return `
+    <div class="txt">${label}</div>
+    ${hint ? `<div class="hint-small" style="margin-bottom:4px;">${hint}</div>` : ''}
+    <div class="img-slot-mini nine-slot-cell" data-role="${role}-slot" title="картинка" style="width:96px;height:96px;">
+      <div class="thumb" data-role="${role}-thumb">${val ? `<img src="${val}">` : '🖼'}</div>
+    </div>
+    <input type="file" accept="image/*" data-role="${role}-file" style="display:none;">
+  `;
+}
+
 /* ============================================================
    CANVAS: РИСОВАНИЕ РЕДАКТОРА
    ============================================================ */
@@ -374,12 +445,7 @@ function nineSlotHtml(role, val, label) {
 function drawEditor() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  if (bgImage) {
-    ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
-  } else {
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  drawThemeBackground(ctx, bgImage, canvas.width, canvas.height, theme.bgScaleMethod, theme.bgHAlign, theme.bgVAlign, bgColor);
 
   // terminal-box (глобальный, корневой элемент темы)
   if (theme.terminalVisible) {
@@ -477,9 +543,11 @@ function drawLayerShape(c, l, sc) {
       drawNinePatch(c, l.menuBorderImg, x, y, w, h, (l.menuBorderBorder || 10) * sc);
     }
 
-    // если высота контейнера больше чем нужно для shown строк — центрируем блок строк по вертикали (как в GRUB)
-    const totalRowsH = fixedRowH * shown + spacing * (shown - 1);
-    const yOffset = h > totalRowsH ? (h - totalRowsH) / 2 : 0;
+    // GRUB (grub-core/gfxmenu/gui_list.c) рисует пункты от ВЕРХНЕГО края контейнера вниз,
+    // без вертикального центрирования — если контейнер выше, чем нужно для всех строк,
+    // лишнее пространство остаётся пустым снизу. Раньше здесь было центрирование блока
+    // строк по вертикали "как будто в GRUB" — это неверно и давало расхождение с реальным рендером.
+    const yOffset = 0;
 
     for (let i = 0; i < shown; i++) {
       const ry = y + yOffset + i * (fixedRowH + spacing);
@@ -1168,7 +1236,10 @@ function renderInspector() {
         <div class="field"><label>Шрифт выбранного (px, 0 = как у пунктов)</label><input type="number" data-k="selectedFontSize" value="${l.selectedFontSize || 0}" min="0" max="96"></div>
         <div class="field"><label>Цвет текста</label><input type="color" data-k="color" value="${l.color}"></div>
         <div class="field"><label>Цвет выбранного</label><input type="color" data-k="selectedColor" value="${l.selectedColor}"></div>
+        <div class="field"><label><b>item_height</b> (высота/толщина пункта, px)</label><input type="number" data-k="itemHeight" value="${l.itemHeight || 32}" min="8" max="300"></div>
+        <div class="hint-small">⚠ Это главный параметр «толщины» строк списка. Если растянуть рамку слоя (Высота выше) больше, чем нужно для всех пунктов — GRUB <b>не центрирует</b> список по вертикали, а прижимает его к верху рамки; лишнее место остаётся пустым снизу. Хотите пункты крупнее и шире — увеличивайте именно item_height (+ Размер шрифта выше), а не просто высоту рамки.</div>
         <div class="field"><label>item_padding</label><input type="number" data-k="itemPadding" value="${l.itemPadding}"></div>
+        <div class="hint-small">Горизонтальный отступ пунктов от левого/правого края рамки меню (не толщина строки).</div>
         <div class="field"><label>item_spacing</label><input type="number" data-k="itemSpacing" value="${l.itemSpacing}"></div>
         <div class="field"><label>item_icon_space</label><input type="number" data-k="itemIconSpace" value="${l.itemIconSpace}"></div>
         <div class="field"><label>Ширина иконки (icon_width)</label><input type="number" data-k="iconWidth" value="${l.iconWidth || 32}" min="0"></div>
@@ -1259,8 +1330,8 @@ function renderInspector() {
       </div>
       <div class="field-group">
         <h4>Картинки (bitmaps) — обязательны для видимости</h4>
-        ${nineSlotHtml('center-bitmap', l.centerBitmap, 'center_bitmap — картинка в центре')}
-        ${nineSlotHtml('tick-bitmap', l.tickBitmap, 'tick_bitmap — картинка одной метки')}
+        ${singleSlotHtml('center-bitmap', l.centerBitmap, 'center_bitmap — картинка в центре', 'Одна PNG-картинка (не 9-patch), фиксированного размера, по центру круга.')}
+        ${singleSlotHtml('tick-bitmap', l.tickBitmap, 'tick_bitmap — картинка одной метки', 'Одна PNG-картинка одной "метки" — GRUB сам расставляет её по кругу numTicks раз.')}
         <div class="hint-small">Квадратные изображения (width = height) дают симметричный круг. Картинки не масштабируются GRUB — делайте нужного размера сразу.</div>
       </div>
     `;
@@ -1322,7 +1393,7 @@ function renderInspector() {
     fields += `
       <div class="field-group">
         <h4>Картинка</h4>
-        ${nineSlotHtml('image-file-slot', l.imgUrl, l.imgUrl ? 'Заменить картинку' : 'Выбрать картинку')}
+        ${singleSlotHtml('image-file-slot', l.imgUrl, l.imgUrl ? 'Заменить картинку' : 'Выбрать картинку', 'Обычный PNG-файл (не 9-patch) — картинка вставляется как есть, растягивается по размеру рамки слоя.')}
         <div class="hint-small">Произвольная декоративная картинка (лого, персонаж, элемент оформления).</div>
       </div>
     `;
@@ -1442,16 +1513,18 @@ function renderInspector() {
       box.addEventListener('click', () => file.click());
       file.addEventListener('change', (ev) => {
         const f = ev.target.files[0]; if (!f) return;
+        const thumbEl = box.querySelector('.thumb');
+        if (thumbEl) thumbEl.innerHTML = '<span style="opacity:.7;">⏳</span>';
         handlePickedImageFile(f, (url) => {
           const cur = (l[targetKey] && typeof l[targetKey] === 'object') ? { ...l[targetKey] } : {};
           cur.__slices = true;
           cur[suf] = url;
           l[targetKey] = cur;
           l[targetKey + 'Pattern'] = null; // сброс "честного" пути импорта — теперь это свежая нарезка редактора
-          cacheImage(url);
+          cacheImage(url, () => { renderInspector(); renderAll(); });
           renderInspector();
           renderAll();
-        });
+        }, () => renderInspector());
       });
     });
     if (boundAny) return;
@@ -1462,12 +1535,14 @@ function renderInspector() {
     box.addEventListener('click', () => file.click());
     file.addEventListener('change', (ev) => {
       const f = ev.target.files[0]; if (!f) return;
+      const thumbEl = box.querySelector('.thumb');
+      if (thumbEl) thumbEl.innerHTML = '<span style="opacity:.7;">⏳ конвертация…</span>';
       handlePickedImageFile(f, (url) => {
         l[targetKey] = url;
-        cacheImage(url);
+        cacheImage(url, () => { renderInspector(); renderAll(); });
         renderInspector();
         renderAll();
-      });
+      }, () => renderInspector());
     });
   });
 
@@ -3402,8 +3477,7 @@ function openPreview() {
   function renderFrame() {
     // фон
     pctx.clearRect(0,0,pc.width, pc.height);
-    if (bgImage) pctx.drawImage(bgImage, 0, 0, pc.width, pc.height);
-    else { pctx.fillStyle = bgColor; pctx.fillRect(0,0,pc.width, pc.height); }
+    drawThemeBackground(pctx, bgImage, pc.width, pc.height, theme.bgScaleMethod, theme.bgHAlign, theme.bgVAlign, bgColor);
     // title
     if (theme.titleVisible && theme.titleText) {
       const tParts = String(theme.titleFont || 'DejaVu Sans Mono Bold 28').match(/^(.*?)\s+(Bold|Regular|Italic|BoldItalic)\s+(\d+)$/i);
